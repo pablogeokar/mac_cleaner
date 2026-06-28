@@ -264,14 +264,45 @@ class ScannerNotifier extends _$ScannerNotifier {
   }
 
   /// Starts scanning categories. If `quickScan` is true, only system logs and system caches are scanned.
-  Future<void> startScan({bool quickScan = false}) async {
+  Future<bool> startScan({bool quickScan = false}) async {
     cancelScan();
     _isCancelled = false;
+
+    final previousCategories = state.categories;
+    final selectedTypes = {
+      for (final category in previousCategories)
+        if (category.isSelected) category.type,
+    };
+    final targets = previousCategories
+        .where((cat) {
+          if (!selectedTypes.contains(cat.type)) return false;
+          if (quickScan) {
+            return cat.type == ScanCategoryType.systemCache ||
+                cat.type == ScanCategoryType.systemLogs;
+          }
+          return true;
+        })
+        .map((c) => c.type)
+        .toList();
+
+    if (targets.isEmpty) {
+      state = state.copyWith(
+        currentProgressLog: quickScan
+            ? 'Selecione Cache do Sistema ou Logs do Sistema para executar a varredura rápida.'
+            : 'Selecione pelo menos uma categoria para iniciar a varredura.',
+      );
+      return false;
+    }
+
+    final initialCategories = _initializeCategories().map((category) {
+      final isSelected = selectedTypes.contains(category.type);
+      return category.copyWith(isSelected: isSelected);
+    }).toList();
 
     // Reset State
     state = ScanState(
       status: ScannerStatus.scanning,
-      categories: _initializeCategories(),
+      categories: initialCategories,
       currentProgressLog: 'Inicializando varredura...',
       totalScannedBytes: 0,
       totalScannedFiles: 0,
@@ -282,17 +313,6 @@ class ScannerNotifier extends _$ScannerNotifier {
       overallProgress: 0.0,
       categoryProgresses: {for (var type in ScanCategoryType.values) type: 0.0},
     );
-
-    final targets = state.categories
-        .where((cat) {
-          if (quickScan) {
-            return cat.type == ScanCategoryType.systemCache ||
-                cat.type == ScanCategoryType.systemLogs;
-          }
-          return true;
-        })
-        .map((c) => c.type)
-        .toList();
 
     // Setup active categories states
     state = state.copyWith(
@@ -365,7 +385,10 @@ class ScannerNotifier extends _$ScannerNotifier {
         currentProgressLog: 'Varredura finalizada.',
       );
       _recalculateSelectedSizes();
+      return true;
     }
+
+    return false;
   }
 
   void _updateProgress(ScanProgress progress) {

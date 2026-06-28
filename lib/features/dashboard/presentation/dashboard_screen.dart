@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../scanner/domain/entities/scan_category.dart';
 import '../../scanner/presentation/providers/scan_provider.dart';
 import 'providers/disk_info_provider.dart';
 import 'widgets/macos_window_shell.dart';
@@ -92,6 +93,24 @@ class DashboardScreen extends ConsumerWidget {
                       // Quick Scan Button
                       OutlinedButton(
                         onPressed: () {
+                          final canRunQuickScan = scanState.categories.any(
+                            (category) =>
+                                category.isSelected &&
+                                (category.type ==
+                                        ScanCategoryType.systemCache ||
+                                    category.type ==
+                                        ScanCategoryType.systemLogs),
+                          );
+                          if (!canRunQuickScan) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Selecione Cache do Sistema ou Logs do Sistema para executar a varredura rápida.',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
                           ref
                               .read(scannerNotifierProvider.notifier)
                               .startScan(quickScan: true);
@@ -119,6 +138,19 @@ class DashboardScreen extends ConsumerWidget {
                       // Full Scan Button
                       ElevatedButton(
                         onPressed: () {
+                          final canRunFullScan = scanState.categories.any(
+                            (category) => category.isSelected,
+                          );
+                          if (!canRunFullScan) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Selecione pelo menos uma categoria para iniciar a varredura.',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
                           ref
                               .read(scannerNotifierProvider.notifier)
                               .startScan(quickScan: false);
