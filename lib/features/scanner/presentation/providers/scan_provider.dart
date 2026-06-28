@@ -443,8 +443,14 @@ class ScannerNotifier extends _$ScannerNotifier {
   }
 
   /// Performs cleaning of selected items.
-  Future<void> startCleanup({required bool permanent}) async {
-    if (state.status != ScannerStatus.completed) return;
+  Future<bool> startCleanup({required bool permanent}) async {
+    if (state.status != ScannerStatus.completed) {
+      state = state.copyWith(
+        currentProgressLog:
+            'A limpeza só pode ser iniciada após uma varredura concluída.',
+      );
+      return false;
+    }
 
     state = state.copyWith(
       status: ScannerStatus.deleting,
@@ -459,8 +465,11 @@ class ScannerNotifier extends _$ScannerNotifier {
     }
 
     if (selectedItems.isEmpty) {
-      state = state.copyWith(status: ScannerStatus.completed);
-      return;
+      state = state.copyWith(
+        status: ScannerStatus.completed,
+        currentProgressLog: 'Nenhum item selecionado para limpeza.',
+      );
+      return false;
     }
 
     try {
@@ -503,11 +512,13 @@ class ScannerNotifier extends _$ScannerNotifier {
         totalSelectedFiles: 0,
         currentProgressLog: 'Limpeza concluída com sucesso!',
       );
+      return true;
     } catch (e) {
       state = state.copyWith(
         status: ScannerStatus.completed,
         currentProgressLog: 'Erro durante a remoção: $e',
       );
+      return false;
     }
   }
 

@@ -1,6 +1,10 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../../core/utils/file_size_formatter.dart';
 import '../../dashboard/presentation/widgets/macos_window_shell.dart';
@@ -26,14 +30,38 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
 
     // Watch status changes to auto-navigate to report screen
     ref.listen(scannerNotifierProvider, (previous, next) {
+      if (previous?.status != ScannerStatus.deleting &&
+          next.status == ScannerStatus.deleting) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Movendo arquivos selecionados para a Lixeira...'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+
       if (next.status == ScannerStatus.finished) {
         context.go('/report');
+      }
+
+      final message = next.currentProgressLog;
+      if (previous?.currentProgressLog != message &&
+          next.status == ScannerStatus.completed &&
+          message.startsWith('Erro durante a remoção')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.redAccent,
+            duration: const Duration(seconds: 8),
+          ),
+        );
       }
     });
 
     final totalFoundFormatted = FileSizeFormatter.format(
       scanState.categories.fold<int>(0, (sum, cat) => sum + cat.totalBytes),
     );
+    final isDeleting = scanState.status == ScannerStatus.deleting;
 
     return MacosWindowShell(
       currentRoute: '/results',
@@ -64,6 +92,25 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                     ),
                   ],
                 ),
+                if (kDebugMode)
+                  OutlinedButton.icon(
+                    onPressed: () => _exportDebugScanLog(context, scanState),
+                    icon: const Icon(Icons.bug_report_outlined, size: 16),
+                    label: const Text('Gerar log'),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.12),
+                      ),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 20),
@@ -330,12 +377,14 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                     children: [
                       // Cancel Button
                       OutlinedButton(
-                        onPressed: () {
-                          ref
-                              .read(scannerNotifierProvider.notifier)
-                              .resetToDashboard();
-                          context.go('/');
-                        },
+                        onPressed: isDeleting
+                            ? null
+                            : () {
+                                ref
+                                    .read(scannerNotifierProvider.notifier)
+                                    .resetToDashboard();
+                                context.go('/');
+                              },
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(
                             color: Colors.white.withValues(alpha: 0.12),
@@ -357,7 +406,8 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
 
                       // Clean Button
                       ElevatedButton(
-                        onPressed: scanState.totalSelectedFiles > 0
+                        onPressed:
+                            scanState.totalSelectedFiles > 0 && !isDeleting
                             ? () => _showCleanupConfirmation(context)
                             : null,
                         style: ElevatedButton.styleFrom(
@@ -371,13 +421,35 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
-                        child: const Text(
-                          'Limpar Selecionados',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        child: isDeleting
+                            ? const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.black,
+                                    ),
+                                  ),
+                                  SizedBox(width: 10),
+                                  Text(
+                                    'Movendo...',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : const Text(
+                                'Limpar Selecionados',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                       ),
                     ],
                   ),
@@ -418,6 +490,105 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
         break;
     }
     return list;
+  }
+
+  Future<void> _exportDebugScanLog(
+    BuildContext context,
+    ScanState scanState,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .replaceAll('.', '-');
+      await tempDir.create(recursive: true);
+      final file = File('${tempDir.path}/maccleaner-scan-log-$timestamp.csv');
+      final sink = file.openWrite();
+
+      sink.writeln('MacCleaner debug scan log');
+      sink.writeln('Generated at,${_csv(DateTime.now().toIso8601String())}');
+      sink.writeln(
+        'Total bytes,${scanState.categories.fold<int>(0, (sum, cat) => sum + cat.totalBytes)}',
+      );
+      sink.writeln(
+        'Total files,${scanState.categories.fold<int>(0, (sum, cat) => sum + cat.fileCount)}',
+      );
+      sink.writeln();
+
+      sink.writeln('Category summary');
+      sink.writeln('category,type,fileCount,totalBytes,isSelected');
+      for (final category in scanState.categories) {
+        sink.writeln(
+          [
+            category.displayName,
+            category.type.name,
+            category.fileCount.toString(),
+            category.totalBytes.toString(),
+            category.isSelected.toString(),
+          ].map(_csv).join(','),
+        );
+      }
+      sink.writeln();
+
+      sink.writeln('Items');
+      sink.writeln(
+        'category,categoryType,path,fileName,sizeBytes,type,lastModified,lastAccessed,isSafeToDelete,isSelected,reason',
+      );
+      for (final category in scanState.categories) {
+        final items = List<ScanItem>.from(category.items)
+          ..sort((a, b) => b.sizeBytes.compareTo(a.sizeBytes));
+        for (final item in items) {
+          sink.writeln(
+            [
+              category.displayName,
+              category.type.name,
+              item.path,
+              item.fileName,
+              item.sizeBytes.toString(),
+              item.type.name,
+              item.lastModified.toIso8601String(),
+              item.lastAccessed.toIso8601String(),
+              item.isSafeToDelete.toString(),
+              item.isSelected.toString(),
+              item.reason ?? '',
+            ].map(_csv).join(','),
+          );
+        }
+      }
+
+      await sink.flush();
+      await sink.close();
+
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Log gerado em: ${file.path}'),
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(
+            label: 'Abrir no Finder',
+            onPressed: () => _revealInFinder(file.path),
+          ),
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Erro ao gerar log: $error'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  String _csv(String value) {
+    final escaped = value.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  Future<void> _revealInFinder(String path) async {
+    await Process.run('open', ['-R', path]);
   }
 
   void _showCleanupConfirmation(BuildContext context) {
@@ -522,9 +693,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                 ElevatedButton(
                   onPressed: () {
                     Navigator.of(dialogContext).pop();
-                    ref
-                        .read(scannerNotifierProvider.notifier)
-                        .startCleanup(permanent: isPermanent);
+                    _startCleanup(context, permanent: isPermanent);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isPermanent
@@ -542,6 +711,29 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
           },
         );
       },
+    );
+  }
+
+  Future<void> _startCleanup(
+    BuildContext context, {
+    required bool permanent,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final success = await ref
+        .read(scannerNotifierProvider.notifier)
+        .startCleanup(permanent: permanent);
+
+    if (!mounted || success) return;
+
+    final message = ref.read(scannerNotifierProvider).currentProgressLog;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: message.startsWith('Erro')
+            ? Colors.redAccent
+            : const Color(0xFF2B2B30),
+        duration: const Duration(seconds: 6),
+      ),
     );
   }
 }
