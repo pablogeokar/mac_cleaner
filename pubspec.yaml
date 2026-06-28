@@ -47,3 +47,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/icon.png
+    - assets/mac_cleaner_logo.png
+    - assets/mac_cleaner_sidebar_logo.png

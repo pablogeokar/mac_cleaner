@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/mac_cleaner_logo.png" alt="MacCleaner logo" width="360">
+</p>
+
 # MacCleaner
 
 MacCleaner is a Flutter macOS desktop app for finding files that may be safe to clean up, such as caches, logs, temporary downloads, trash contents, large files, duplicates, developer tool caches, app leftovers, and duplicated fonts.

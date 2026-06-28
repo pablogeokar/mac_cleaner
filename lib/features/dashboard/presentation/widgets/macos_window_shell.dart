@@ -75,32 +75,23 @@ class MacosWindowShell extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // App Name
+                        // App Logo
                         Padding(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 10,
+                            horizontal: 8,
+                            vertical: 6,
                           ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.cleaning_services,
-                                color: Theme.of(context).primaryColor,
-                                size: 24,
-                              ),
-                              const SizedBox(width: 10),
-                              const Text(
-                                'MacCleaner',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: -0.5,
-                                ),
-                              ),
-                            ],
+                          child: Align(
+                            alignment: Alignment.center,
+                            child: Image.asset(
+                              'assets/mac_cleaner_sidebar_logo.png',
+                              width: 224,
+                              filterQuality: FilterQuality.high,
+                              isAntiAlias: true,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 6),
 
                         // Navigation Items
                         _SidebarItem(

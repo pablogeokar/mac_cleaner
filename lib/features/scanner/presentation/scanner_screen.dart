@@ -67,10 +67,15 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                       ).primaryColor.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(
-                      Icons.search,
-                      color: Theme.of(context).primaryColor,
-                      size: 32,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.asset(
+                        'assets/icon.png',
+                        width: 44,
+                        height: 44,
+                        fit: BoxFit.cover,
+                        filterQuality: FilterQuality.high,
+                      ),
                     ),
                   ),
                 ),
