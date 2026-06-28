@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'router.dart';
 import 'theme.dart';
 
-class MacSweepApp extends StatelessWidget {
-  const MacSweepApp({super.key});
+class MacCleanerApp extends StatelessWidget {
+  const MacCleanerApp({super.key});
 
   @override
   Widget build(BuildContext context) {

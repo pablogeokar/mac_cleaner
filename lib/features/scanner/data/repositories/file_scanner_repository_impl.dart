@@ -13,7 +13,7 @@ import '../../domain/entities/scan_progress.dart';
 import '../../domain/repositories/file_scanner_repository.dart';
 
 class FileScannerRepositoryImpl implements FileScannerRepository {
-  static const _channel = MethodChannel('macsweep/recycle');
+  static const _channel = MethodChannel('maccleaner/recycle');
 
   @override
   Future<void> deleteItems(

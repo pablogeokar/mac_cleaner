@@ -23,5 +23,5 @@ void main() async {
     await windowManager.focus();
   });
 
-  runApp(const ProviderScope(child: MacSweepApp()));
+  runApp(const ProviderScope(child: MacCleanerApp()));
 }

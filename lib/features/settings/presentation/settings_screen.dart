@@ -27,7 +27,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Personalize o comportamento do MacSweep.',
+              'Personalize o comportamento do MacCleaner.',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.white.withValues(alpha: 0.4),
@@ -45,7 +45,7 @@ class SettingsScreen extends ConsumerWidget {
                       _ToggleTile(
                         title: 'Iniciar com o Sistema',
                         subtitle:
-                            'Abrir MacSweep automaticamente ao fazer login no macOS.',
+                            'Abrir MacCleaner automaticamente ao fazer login no macOS.',
                         value: settings.launchOnStartup,
                         onChanged: (val) => ref
                             .read(settingsProvider.notifier)

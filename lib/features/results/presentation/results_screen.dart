@@ -392,7 +392,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
 
   List<ScanItem> _getFilteredAndSortedItems(List<ScanItem> items) {
     // 1. Filter by Search Query
-    var list = items;
+    var list = List<ScanItem>.from(items);
     if (_searchQuery.isNotEmpty) {
       list = list
           .where((item) => item.fileName.toLowerCase().contains(_searchQuery))

@@ -12,7 +12,7 @@ class MainFlutterWindow: NSWindow {
 
     // Setup MethodChannel for recycling files/directories to trash
     let channel = FlutterMethodChannel(
-      name: "macsweep/recycle",
+      name: "maccleaner/recycle",
       binaryMessenger: flutterViewController.engine.binaryMessenger
     )
     channel.setMethodCallHandler { (call, result) in

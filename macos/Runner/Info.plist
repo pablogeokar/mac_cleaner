@@ -29,10 +29,10 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>MacSweep precisa acessar sua pasta de Documentos para detectar arquivos duplicados.</string>
+	<string>MacCleaner precisa acessar sua pasta de Documentos para detectar arquivos duplicados.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>MacSweep precisa acessar Downloads para detectar arquivos temporários e incompletos.</string>
+	<string>MacCleaner precisa acessar Downloads para detectar arquivos temporários e incompletos.</string>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>MacSweep precisa acessar a Área de Trabalho para verificar arquivos grandes.</string>
+	<string>MacCleaner precisa acessar a Área de Trabalho para verificar arquivos grandes.</string>
 </dict>
 </plist>
