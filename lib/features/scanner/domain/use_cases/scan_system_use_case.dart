@@ -12,12 +12,14 @@ class ScanSystemUseCase {
     int largeFileThresholdBytes = 500 * 1024 * 1024,
     int tempFileAgeHours = 48,
     int systemCacheAgeDays = 7,
+    List<String> excludedPaths = const [],
   }) {
     return repository.scanCategory(
       category,
       largeFileThresholdBytes: largeFileThresholdBytes,
       tempFileAgeHours: tempFileAgeHours,
       systemCacheAgeDays: systemCacheAgeDays,
+      excludedPaths: excludedPaths,
     );
   }
 }

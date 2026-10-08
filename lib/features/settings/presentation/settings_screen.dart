@@ -38,28 +38,17 @@ class SettingsScreen extends ConsumerWidget {
             Expanded(
               child: ListView(
                 children: [
-                  // Section: Automação
-                  _SectionHeader('Automação'),
+                  _SectionHeader('Segurança'),
                   _SettingsCard(
                     children: [
                       _ToggleTile(
-                        title: 'Iniciar com o Sistema',
+                        title: 'Permitir exclusão permanente',
                         subtitle:
-                            'Abrir MacCleaner automaticamente ao fazer login no macOS.',
-                        value: settings.launchOnStartup,
+                            'Desbloqueia a opção irreversível, protegida por confirmação digitada.',
+                        value: settings.allowPermanentDeletion,
                         onChanged: (val) => ref
                             .read(settingsProvider.notifier)
-                            .toggleLaunchOnStartup(val),
-                      ),
-                      const Divider(height: 1),
-                      _ToggleTile(
-                        title: 'Varredura Automática Semanal',
-                        subtitle:
-                            'Executar uma varredura completa toda semana em segundo plano.',
-                        value: settings.weeklyAutoScan,
-                        onChanged: (val) => ref
-                            .read(settingsProvider.notifier)
-                            .toggleWeeklyAutoScan(val),
+                            .togglePermanentDeletion(val),
                       ),
                     ],
                   ),
@@ -157,6 +146,48 @@ class SettingsScreen extends ConsumerWidget {
                           ],
                         ),
                       ),
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Antiguidade mínima de Caches',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Caches não modificados há mais de ${settings.systemCacheMinAgeDays} dias serão incluídos.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.white.withValues(alpha: 0.4),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Slider(
+                              value: settings.systemCacheMinAgeDays.toDouble(),
+                              min: 1,
+                              max: 30,
+                              divisions: 29,
+                              activeColor: Theme.of(context).primaryColor,
+                              inactiveColor: Colors.white.withValues(
+                                alpha: 0.08,
+                              ),
+                              label: '${settings.systemCacheMinAgeDays} dias',
+                              onChanged: (val) {
+                                ref
+                                    .read(settingsProvider.notifier)
+                                    .updateSystemCacheMinAgeDays(val.round());
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 24),
@@ -165,7 +196,7 @@ class SettingsScreen extends ConsumerWidget {
                   _SectionHeader('Caminhos Excluídos da Varredura'),
                   _SettingsCard(
                     children: [
-                      if (settings.whitelistedPaths.isEmpty)
+                      if (settings.excludedPaths.isEmpty)
                         const Padding(
                           padding: EdgeInsets.all(16),
                           child: Text(
@@ -177,7 +208,7 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         )
                       else
-                        ...settings.whitelistedPaths.map((path) {
+                        ...settings.excludedPaths.map((path) {
                           return ListTile(
                             dense: true,
                             leading: const Icon(
@@ -201,7 +232,7 @@ class SettingsScreen extends ConsumerWidget {
                               onPressed: () {
                                 ref
                                     .read(settingsProvider.notifier)
-                                    .removeWhitelistedPath(path);
+                                    .removeExcludedPath(path);
                               },
                             ),
                           );
@@ -291,7 +322,18 @@ class SettingsScreen extends ConsumerWidget {
               onPressed: () {
                 final path = controller.text.trim();
                 if (path.isNotEmpty) {
-                  ref.read(settingsProvider.notifier).addWhitelistedPath(path);
+                  final added = ref
+                      .read(settingsProvider.notifier)
+                      .addExcludedPath(path);
+                  if (!added) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Informe um caminho absoluto válido que ainda não esteja na lista.',
+                        ),
+                      ),
+                    );
+                  }
                 }
                 Navigator.of(ctx).pop();
               },

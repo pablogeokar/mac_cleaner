@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 
 import '../../../../core/constants/scan_paths.dart';
 import '../../../../core/utils/shell_runner.dart';
+import '../../domain/entities/cleanup_result.dart';
 import '../../domain/entities/deletion_safety_guard.dart';
 import '../../domain/entities/scan_category.dart';
 import '../../domain/entities/scan_item.dart';
@@ -16,42 +17,75 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
   static const _channel = MethodChannel('maccleaner/recycle');
 
   @override
-  Future<void> deleteItems(
+  Future<CleanupResult> deleteItems(
     List<ScanItem> items, {
     required bool permanent,
+    List<String> excludedPaths = const [],
   }) async {
-    final pathsToDelete = <String>[];
+    final removed = <ScanItem>[];
+    final skipped = <String, String>{};
+    final failed = <String, String>{};
+
     for (final item in items) {
-      if (DeletionSafetyGuard.isSafeToDelete(item.path)) {
-        pathsToDelete.add(item.path);
+      final assessment = DeletionSafetyGuard.assess(
+        item.path,
+        excludedPaths: excludedPaths,
+      );
+      if (!item.isSafeToDelete || !assessment.isAllowed) {
+        skipped[item.path] = assessment.isAllowed
+            ? 'Item classificado como protegido.'
+            : assessment.reason;
+        continue;
       }
-    }
 
-    if (pathsToDelete.isEmpty) return;
+      final path = assessment.normalizedPath;
+      try {
+        final entityType = await FileSystemEntity.type(
+          path,
+          followLinks: false,
+        );
+        if (entityType == FileSystemEntityType.notFound) {
+          skipped[item.path] = 'O item não existe mais.';
+          continue;
+        }
+        if (entityType == FileSystemEntityType.link) {
+          skipped[item.path] =
+              'Links simbólicos são preservados por segurança.';
+          continue;
+        }
+        if (!permanent && _isInsideUserTrash(path)) {
+          skipped[item.path] =
+              'O item já está na Lixeira; use a remoção permanente para esvaziá-la.';
+          continue;
+        }
 
-    if (permanent) {
-      for (final path in pathsToDelete) {
-        try {
-          final file = File(path);
-          if (await file.exists()) {
-            await file.delete(recursive: true);
+        if (permanent) {
+          if (entityType == FileSystemEntityType.directory) {
+            await Directory(path).delete(recursive: true);
+          } else if (entityType == FileSystemEntityType.file) {
+            await File(path).delete();
+          } else {
+            skipped[item.path] = 'Tipo de item não suportado.';
             continue;
           }
-          final dir = Directory(path);
-          if (await dir.exists()) {
-            await dir.delete(recursive: true);
-          }
-        } catch (_) {
-          // Suppress errors for single files
+        } else {
+          await _channel.invokeMethod('recycle', [path]);
         }
-      }
-    } else {
-      try {
-        await _channel.invokeMethod('recycle', pathsToDelete);
-      } on PlatformException catch (e) {
-        throw Exception('Failed to move files to Trash: ${e.message}');
+        removed.add(item);
+      } on PlatformException catch (error) {
+        failed[item.path] = error.message ?? 'Falha ao mover para a Lixeira.';
+      } on FileSystemException catch (error) {
+        failed[item.path] = error.message;
+      } catch (error) {
+        failed[item.path] = error.toString();
       }
     }
+
+    return CleanupResult(
+      removedItems: removed,
+      skippedItems: skipped,
+      failedItems: failed,
+    );
   }
 
   @override
@@ -60,6 +94,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
     int largeFileThresholdBytes = 500 * 1024 * 1024,
     int tempFileAgeHours = 48,
     int systemCacheAgeDays = 7,
+    List<String> excludedPaths = const [],
   }) async* {
     yield ScanProgress(
       category: category,
@@ -78,14 +113,6 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
       switch (category) {
         case ScanCategoryType.systemCache:
           final cachePaths = List<String>.from(ScanPaths.systemCachePaths);
-
-          // Resolve /private/var/folders/**/C/
-          final systemTemp = Directory.systemTemp.path;
-          if (systemTemp.endsWith('/T')) {
-            final cacheFolder =
-                '${systemTemp.substring(0, systemTemp.length - 2)}/C';
-            cachePaths.add(cacheFolder);
-          }
 
           final limitDate = DateTime.now().subtract(
             Duration(days: systemCacheAgeDays),
@@ -108,6 +135,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
             await for (final item in ShellRunner.listFilesRecursive(
               path,
               olderThan: limitDate,
+              excludedPaths: excludedPaths,
             )) {
               if (item.path.contains('com.apple.Safari')) continue;
               items.add(item);
@@ -157,6 +185,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
               path,
               extensions: ScanPaths.logExtensions,
               olderThan: limitDate,
+              excludedPaths: excludedPaths,
             )) {
               items.add(item);
               totalBytes += item.sizeBytes;
@@ -178,6 +207,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
             await for (final item in ShellRunner.listFilesRecursive(
               path,
               olderThan: limitDate,
+              excludedPaths: excludedPaths,
             )) {
               items.add(item);
               totalBytes += item.sizeBytes;
@@ -191,6 +221,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
               downloadsPath,
               extensions: ScanPaths.tempDownloadExtensions,
               olderThan: limitDate,
+              excludedPaths: excludedPaths,
             )) {
               items.add(item);
               totalBytes += item.sizeBytes;
@@ -204,6 +235,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
             await for (final item in ShellRunner.listFilesRecursive(
               trashPath,
               maxDepth: 1, // Treat top-level items as single deletable entries
+              excludedPaths: excludedPaths,
             )) {
               items.add(item);
               totalBytes += item.sizeBytes;
@@ -212,7 +244,8 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
           break;
 
         case ScanCategoryType.appCache:
-          // Xcode, npm, yarn, pip, Gradle, Maven, CocoaPods, Carthage, Android Studio, Simulator iOS, Docker
+          // Only reproducible developer caches are scanned here. Runtime data
+          // from Docker, simulators and Android VMs is intentionally excluded.
 
           // Homebrew cache
           String brewCachePath = ScanPaths.expandPath(
@@ -227,25 +260,6 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
             ScanPaths.appCachePaths,
           );
           appCaches['Homebrew'] = [brewCachePath];
-
-          // Android Studio Application Support dynamic path:
-          final googleSupportPath = ScanPaths.expandPath(
-            ScanPaths.androidStudioAppSupportPattern,
-          );
-          final googleSupportDir = Directory(googleSupportPath);
-          if (await googleSupportDir.exists()) {
-            try {
-              await for (final entity in googleSupportDir.list(
-                recursive: false,
-              )) {
-                if (entity is Directory &&
-                    p.basename(entity.path).startsWith('AndroidStudio')) {
-                  appCaches['Android Studio'] =
-                      (appCaches['Android Studio'] ?? [])..add(entity.path);
-                }
-              }
-            } catch (_) {}
-          }
 
           int processedCaches = 0;
           for (final appName in appCaches.keys) {
@@ -270,6 +284,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
               await for (final item in ShellRunner.listFilesRecursive(
                 path,
                 maxDepth: 2,
+                excludedPaths: excludedPaths,
               )) {
                 items.add(item);
                 totalBytes += item.sizeBytes;
@@ -294,14 +309,19 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
               items: items,
             );
 
-            await for (final item in ShellRunner.listFilesRecursive(path)) {
-              if (item.sizeBytes >= largeFileThresholdBytes) {
+            await for (final item in ShellRunner.listFilesRecursive(
+              path,
+              excludedPaths: excludedPaths,
+            )) {
+              if (item.type == ScanItemType.file &&
+                  item.sizeBytes >= largeFileThresholdBytes) {
                 // Large files should NOT be auto-selected
                 items.add(
                   item.copyWith(
                     isSelected: false,
                     isSafeToDelete: true,
-                    reason: 'Arquivo maior que 500 MB',
+                    reason:
+                        'Arquivo maior que ${(largeFileThresholdBytes / (1024 * 1024)).round()} MB',
                   ),
                 );
                 totalBytes += item.sizeBytes;
@@ -317,8 +337,11 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
             final path = ScanPaths.expandPath(rawPath);
             if (!await Directory(path).exists()) continue;
 
-            await for (final item in ShellRunner.listFilesRecursive(path)) {
-              allCandidates.add(item);
+            await for (final item in ShellRunner.listFilesRecursive(
+              path,
+              excludedPaths: excludedPaths,
+            )) {
+              if (item.type == ScanItemType.file) allCandidates.add(item);
             }
           }
 
@@ -349,8 +372,9 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
               items: items,
             );
 
-            // Compute MD5 hash with custom streaming reader
-            final hash = await _getFileMd5(item.path);
+            // Full SHA-256 verification avoids selecting files using names or
+            // sizes alone.
+            final hash = await _getFileHash(item.path);
             if (hash.isNotEmpty) {
               hashes.putIfAbsent(hash, () => []).add(item);
             }
@@ -380,38 +404,12 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
           break;
 
         case ScanCategoryType.appResiduals:
-          // 1. Get installed apps
-          final installedApps = <String>{};
-          for (final root in [
-            '/Applications',
-            ScanPaths.expandPath('~/Applications'),
-          ]) {
-            final dir = Directory(root);
-            if (await dir.exists()) {
-              try {
-                await for (final entity in dir.list(recursive: false)) {
-                  if (entity is Directory && entity.path.endsWith('.app')) {
-                    final name = p
-                        .basenameWithoutExtension(entity.path)
-                        .toLowerCase();
-                    installedApps.add(name);
-                  }
-                }
-              } catch (_) {}
-            }
-          }
+          // Match exact bundle identifiers rather than guessing from app names.
+          // If the installed-app inventory cannot be read, fail closed and do
+          // not suggest any residual for deletion.
+          final installedBundleIds = await _getInstalledBundleIdentifiers();
+          if (installedBundleIds.isEmpty) break;
 
-          // Check Caskroom
-          final caskroom = Directory('/usr/local/Caskroom');
-          if (await caskroom.exists()) {
-            try {
-              await for (final entity in caskroom.list(recursive: false)) {
-                installedApps.add(p.basename(entity.path).toLowerCase());
-              }
-            } catch (_) {}
-          }
-
-          // 2. Scan App Support, Preferences, LaunchAgents, Containers
           int processedRoots = 0;
           for (final rawPath in ScanPaths.residualSearchPaths) {
             final path = ScanPaths.expandPath(rawPath);
@@ -434,26 +432,33 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
               await for (final entity in Directory(
                 path,
               ).list(recursive: false)) {
-                final name = p.basename(entity.path).toLowerCase();
+                final assessment = DeletionSafetyGuard.assess(
+                  entity.path,
+                  excludedPaths: excludedPaths,
+                );
+                if (!assessment.isAllowed) continue;
 
-                bool isOrphan = true;
-                for (final app in installedApps) {
-                  if (name.contains(app) || app.contains(name)) {
-                    isOrphan = false;
-                    break;
-                  }
+                final identifier = _candidateBundleIdentifier(entity.path);
+                if (identifier == null || _isAppleIdentifier(identifier)) {
+                  continue;
                 }
 
-                if (name.startsWith('com.apple.') ||
-                    name.startsWith('apple.')) {
-                  isOrphan = false;
-                }
+                final hasInstalledOwner = installedBundleIds.any(
+                  (installed) =>
+                      identifier == installed ||
+                      identifier.startsWith('$installed.') ||
+                      installed.startsWith('$identifier.'),
+                );
 
-                if (isOrphan) {
+                if (!hasInstalledOwner) {
                   final stat = await entity.stat();
                   final size = entity is Directory
                       ? await ShellRunner.getDirectorySizeBytes(entity.path)
                       : stat.size;
+                  final entityType = await FileSystemEntity.type(
+                    entity.path,
+                    followLinks: false,
+                  );
 
                   items.add(
                     ScanItem(
@@ -462,11 +467,14 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
                       sizeBytes: size,
                       lastModified: stat.modified,
                       lastAccessed: stat.accessed,
-                      type: entity is Directory
+                      type: entityType == FileSystemEntityType.directory
                           ? ScanItemType.directory
+                          : entityType == FileSystemEntityType.link
+                          ? ScanItemType.symlink
                           : ScanItemType.file,
-                      isSelected: false, // Require confirmation
-                      reason: 'Pasta residual órfã',
+                      isSelected: false,
+                      reason:
+                          'Possível resíduo: identificador $identifier sem app correspondente.',
                     ),
                   );
                   totalBytes += size;
@@ -492,10 +500,13 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
             await for (final item in ShellRunner.listFilesRecursive(
               fontDir,
               extensions: ['.ttf', '.otf'],
+              excludedPaths: excludedPaths,
             )) {
-              fontFiles
-                  .putIfAbsent(item.fileName.toLowerCase(), () => [])
-                  .add(item);
+              if (item.type != ScanItemType.file) continue;
+              final hash = await _getFileHash(item.path);
+              if (hash.isNotEmpty) {
+                fontFiles.putIfAbsent(hash, () => []).add(item);
+              }
             }
           }
 
@@ -539,23 +550,127 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
       // Catch exceptions
     }
 
+    final reviewedItems = items
+        .map((item) => _applySafetyPolicy(category, item, excludedPaths))
+        .toList(growable: false);
+    final reviewedBytes = reviewedItems.fold<int>(
+      0,
+      (total, item) => total + item.sizeBytes,
+    );
+
     yield ScanProgress(
       category: category,
       progress: 1.0,
       currentPath: 'Varredura concluída!',
-      itemsFound: items.length,
-      bytesFound: totalBytes,
+      itemsFound: reviewedItems.length,
+      bytesFound: reviewedBytes,
       isComplete: true,
-      items: items,
+      items: reviewedItems,
     );
   }
 
-  Future<String> _getFileMd5(String filePath) async {
+  ScanItem _applySafetyPolicy(
+    ScanCategoryType category,
+    ScanItem item,
+    List<String> excludedPaths,
+  ) {
+    final assessment = DeletionSafetyGuard.assess(
+      item.path,
+      excludedPaths: excludedPaths,
+    );
+    if (!assessment.isAllowed || item.type == ScanItemType.symlink) {
+      return item.copyWith(
+        isSafeToDelete: false,
+        riskLevel: ScanRiskLevel.protected,
+        isSelected: false,
+        reason: item.type == ScanItemType.symlink
+            ? 'Link simbólico preservado por segurança.'
+            : assessment.reason,
+      );
+    }
+
+    final needsReview =
+        category == ScanCategoryType.temporaryFiles ||
+        category == ScanCategoryType.trash ||
+        category == ScanCategoryType.largeFiles ||
+        category == ScanCategoryType.duplicates ||
+        category == ScanCategoryType.appResiduals ||
+        category == ScanCategoryType.duplicateFonts;
+
+    return item.copyWith(
+      isSafeToDelete: true,
+      riskLevel: needsReview ? ScanRiskLevel.caution : ScanRiskLevel.safe,
+      isSelected: needsReview ? false : item.isSelected,
+      reason:
+          item.reason ??
+          (needsReview
+              ? 'Requer revisão manual antes da limpeza.'
+              : 'Arquivo recriável em uma área de limpeza aprovada.'),
+    );
+  }
+
+  bool _isInsideUserTrash(String path) {
+    final trash = p.normalize(ScanPaths.expandPath('~/.Trash')).toLowerCase();
+    final normalized = p.normalize(path).toLowerCase();
+    return normalized == trash || p.isWithin(trash, normalized);
+  }
+
+  Future<Set<String>> _getInstalledBundleIdentifiers() async {
+    final identifiers = <String>{};
+    for (final root in [
+      '/Applications',
+      ScanPaths.expandPath('~/Applications'),
+    ]) {
+      final directory = Directory(root);
+      if (!await directory.exists()) continue;
+
+      try {
+        await for (final entity in directory.list(recursive: false)) {
+          if (entity is! Directory || !entity.path.endsWith('.app')) continue;
+          final infoPlist = p.join(entity.path, 'Contents', 'Info.plist');
+          if (!await File(infoPlist).exists()) continue;
+          final result = await ShellRunner.run('plutil', [
+            '-extract',
+            'CFBundleIdentifier',
+            'raw',
+            infoPlist,
+          ], timeout: const Duration(seconds: 5));
+          if (result.exitCode == 0) {
+            final identifier = result.stdout.toString().trim().toLowerCase();
+            if (identifier.isNotEmpty) identifiers.add(identifier);
+          }
+        }
+      } catch (_) {
+        // Partial inventories are acceptable; every result remains opt-in.
+      }
+    }
+    return identifiers;
+  }
+
+  String? _candidateBundleIdentifier(String path) {
+    var name = p.basename(path).toLowerCase();
+    for (final suffix in ['.plist', '.appex', '.bundle']) {
+      if (name.endsWith(suffix)) {
+        name = name.substring(0, name.length - suffix.length);
+      }
+    }
+    final pattern = RegExp(r'^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$');
+    return pattern.hasMatch(name) ? name : null;
+  }
+
+  bool _isAppleIdentifier(String identifier) {
+    return identifier.startsWith('com.apple.') ||
+        identifier.startsWith('group.com.apple.') ||
+        identifier.startsWith('systemgroup.com.apple.') ||
+        identifier.startsWith('apple.');
+  }
+
+  Future<String> _getFileHash(String filePath) async {
     final file = File(filePath);
     if (!await file.exists()) return '';
     try {
       final stream = file.openRead();
-      final hash = await md5.bind(stream).first;
+      final hash = await sha256.bind(stream).first;
       return hash.toString();
     } catch (_) {
       return '';

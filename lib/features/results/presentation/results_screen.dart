@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,6 +10,7 @@ import '../../dashboard/presentation/widgets/macos_window_shell.dart';
 
 import '../../scanner/domain/entities/scan_item.dart';
 import '../../scanner/presentation/providers/scan_provider.dart';
+import '../../settings/presentation/providers/settings_provider.dart';
 import 'widgets/file_item_row.dart';
 
 class ResultsScreen extends ConsumerStatefulWidget {
@@ -23,6 +23,7 @@ class ResultsScreen extends ConsumerStatefulWidget {
 class _ResultsScreenState extends ConsumerState<ResultsScreen> {
   String _searchQuery = '';
   String _sortBy = 'size_desc'; // size_desc, size_asc, name, date_desc
+  String _riskFilter = 'all';
 
   @override
   Widget build(BuildContext context) {
@@ -62,6 +63,16 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
       scanState.categories.fold<int>(0, (sum, cat) => sum + cat.totalBytes),
     );
     final isDeleting = scanState.status == ScannerStatus.deleting;
+    final allItems = scanState.categories.expand((category) => category.items);
+    final safeCount = allItems
+        .where((item) => item.riskLevel == ScanRiskLevel.safe)
+        .length;
+    final cautionCount = allItems
+        .where((item) => item.riskLevel == ScanRiskLevel.caution)
+        .length;
+    final protectedCount = allItems
+        .where((item) => item.riskLevel == ScanRiskLevel.protected)
+        .length;
 
     return MacosWindowShell(
       currentRoute: '/results',
@@ -92,28 +103,50 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                     ),
                   ],
                 ),
-                if (kDebugMode)
-                  OutlinedButton.icon(
-                    onPressed: () => _exportDebugScanLog(context, scanState),
-                    icon: const Icon(Icons.bug_report_outlined, size: 16),
-                    label: const Text('Gerar log'),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.12),
-                      ),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                OutlinedButton.icon(
+                  onPressed: () => _exportScanReport(context, scanState),
+                  icon: const Icon(Icons.ios_share_outlined, size: 16),
+                  label: const Text('Exportar relatório'),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.12),
+                    ),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
                     ),
                   ),
+                ),
               ],
             ),
             const SizedBox(height: 20),
+
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _RiskSummaryChip(
+                  label: '$safeCount recomendados',
+                  color: const Color(0xFF68D391),
+                  icon: Icons.verified_user_outlined,
+                ),
+                _RiskSummaryChip(
+                  label: '$cautionCount para revisar',
+                  color: Colors.orangeAccent,
+                  icon: Icons.visibility_outlined,
+                ),
+                _RiskSummaryChip(
+                  label: '$protectedCount protegidos',
+                  color: Colors.redAccent,
+                  icon: Icons.lock_outline,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
 
             // Filter and Search controls
             Row(
@@ -150,7 +183,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                               color: Colors.white,
                             ),
                             decoration: const InputDecoration(
-                              hintText: 'Filtrar por nome de arquivo...',
+                              hintText: 'Buscar por nome, caminho ou motivo...',
                               hintStyle: TextStyle(
                                 fontSize: 12,
                                 color: Colors.white24,
@@ -159,6 +192,52 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                               isDense: true,
                             ),
                           ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.03),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.06),
+                    ),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _riskFilter,
+                      dropdownColor: const Color(0xFF1E1E22),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.white70,
+                      ),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _riskFilter = value);
+                        }
+                      },
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'all',
+                          child: Text('Todos os riscos'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'safe',
+                          child: Text('Recomendados'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'caution',
+                          child: Text('Revisar'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'protected',
+                          child: Text('Protegidos'),
                         ),
                       ],
                     ),
@@ -295,7 +374,9 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                             },
                           ),
                           Text(
-                            cat.isSelected ? 'Selecionado' : 'Ignorado',
+                            cat.isSelected
+                                ? 'Itens recomendados selecionados'
+                                : 'Selecionar itens recomendados',
                             style: TextStyle(
                               fontSize: 10,
                               color: cat.isSelected
@@ -467,8 +548,17 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     var list = List<ScanItem>.from(items);
     if (_searchQuery.isNotEmpty) {
       list = list
-          .where((item) => item.fileName.toLowerCase().contains(_searchQuery))
+          .where(
+            (item) =>
+                item.fileName.toLowerCase().contains(_searchQuery) ||
+                item.path.toLowerCase().contains(_searchQuery) ||
+                (item.reason?.toLowerCase().contains(_searchQuery) ?? false),
+          )
           .toList();
+    }
+
+    if (_riskFilter != 'all') {
+      list = list.where((item) => item.riskLevel.name == _riskFilter).toList();
     }
 
     // 2. Sort
@@ -492,7 +582,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     return list;
   }
 
-  Future<void> _exportDebugScanLog(
+  Future<void> _exportScanReport(
     BuildContext context,
     ScanState scanState,
   ) async {
@@ -508,7 +598,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
       final file = File('${tempDir.path}/maccleaner-scan-log-$timestamp.csv');
       final sink = file.openWrite();
 
-      sink.writeln('MacCleaner debug scan log');
+      sink.writeln('Relatório de varredura do MacCleaner');
       sink.writeln('Generated at,${_csv(DateTime.now().toIso8601String())}');
       sink.writeln(
         'Total bytes,${scanState.categories.fold<int>(0, (sum, cat) => sum + cat.totalBytes)}',
@@ -535,7 +625,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
 
       sink.writeln('Items');
       sink.writeln(
-        'category,categoryType,path,fileName,sizeBytes,type,lastModified,lastAccessed,isSafeToDelete,isSelected,reason',
+        'category,categoryType,path,fileName,sizeBytes,type,riskLevel,lastModified,lastAccessed,isSafeToDelete,isSelected,reason',
       );
       for (final category in scanState.categories) {
         final items = List<ScanItem>.from(category.items)
@@ -549,6 +639,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
               item.fileName,
               item.sizeBytes.toString(),
               item.type.name,
+              item.riskLevel.name,
               item.lastModified.toIso8601String(),
               item.lastAccessed.toIso8601String(),
               item.isSafeToDelete.toString(),
@@ -583,7 +674,8 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
   }
 
   String _csv(String value) {
-    final escaped = value.replaceAll('"', '""');
+    final formulaSafe = RegExp(r'^[=+\-@]').hasMatch(value) ? "'$value" : value;
+    final escaped = formulaSafe.replaceAll('"', '""');
     return '"$escaped"';
   }
 
@@ -598,6 +690,18 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     final sizeFormatted = FileSizeFormatter.format(selectedBytes);
 
     bool isPermanent = false;
+    String confirmationText = '';
+    final settings = ref.read(settingsProvider);
+    final selectedItems = scanState.categories
+        .expand((category) => category.items)
+        .where((item) => item.isSelected)
+        .toList();
+    final reviewCount = selectedItems
+        .where((item) => item.riskLevel == ScanRiskLevel.caution)
+        .length;
+    final trashCount = selectedItems
+        .where((item) => item.path.contains('/.Trash/'))
+        .length;
 
     showDialog(
       context: context,
@@ -632,21 +736,47 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  CheckboxListTile(
-                    value: isPermanent,
-                    activeColor: Theme.of(context).primaryColor,
-                    checkColor: Colors.black,
-                    title: const Text(
-                      'Deletar permanentemente (ignorar Lixeira)',
-                      style: TextStyle(color: Colors.white70, fontSize: 11),
+                  if (reviewCount > 0)
+                    _DialogNotice(
+                      text:
+                          '$reviewCount item(ns) exigem revisão e foram selecionados manualmente.',
+                      color: Colors.orangeAccent,
+                      icon: Icons.visibility_outlined,
                     ),
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: (val) {
-                      setDialogState(() {
-                        isPermanent = val ?? false;
-                      });
-                    },
-                  ),
+                  if (trashCount > 0 && !isPermanent) ...[
+                    const SizedBox(height: 8),
+                    _DialogNotice(
+                      text:
+                          '$trashCount item(ns) já estão na Lixeira e serão preservados neste modo.',
+                      color: Colors.orangeAccent,
+                      icon: Icons.info_outline,
+                    ),
+                  ],
+                  if (settings.allowPermanentDeletion)
+                    CheckboxListTile(
+                      value: isPermanent,
+                      activeColor: Theme.of(context).primaryColor,
+                      checkColor: Colors.black,
+                      title: const Text(
+                        'Deletar permanentemente (ignorar Lixeira)',
+                        style: TextStyle(color: Colors.white70, fontSize: 11),
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: (val) {
+                        setDialogState(() {
+                          isPermanent = val ?? false;
+                          confirmationText = '';
+                        });
+                      },
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Text(
+                        'A exclusão permanente está bloqueada nas configurações.',
+                        style: TextStyle(color: Colors.white38, fontSize: 10),
+                      ),
+                    ),
                   if (isPermanent) ...[
                     const SizedBox(height: 8),
                     Container(
@@ -679,6 +809,19 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      autofocus: true,
+                      onChanged: (value) {
+                        setDialogState(() => confirmationText = value);
+                      },
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                      decoration: const InputDecoration(
+                        labelText: 'Digite APAGAR para confirmar',
+                        labelStyle: TextStyle(color: Colors.white38),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -691,10 +834,12 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                   ),
                 ),
                 ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(dialogContext).pop();
-                    _startCleanup(context, permanent: isPermanent);
-                  },
+                  onPressed: isPermanent && confirmationText != 'APAGAR'
+                      ? null
+                      : () {
+                          Navigator.of(dialogContext).pop();
+                          _startCleanup(context, permanent: isPermanent);
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isPermanent
                         ? Colors.redAccent
@@ -733,6 +878,85 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
             ? Colors.redAccent
             : const Color(0xFF2B2B30),
         duration: const Duration(seconds: 6),
+      ),
+    );
+  }
+}
+
+class _RiskSummaryChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final IconData icon;
+
+  const _RiskSummaryChip({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DialogNotice extends StatelessWidget {
+  final String text;
+  final Color color;
+  final IconData icon;
+
+  const _DialogNotice({
+    required this.text,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

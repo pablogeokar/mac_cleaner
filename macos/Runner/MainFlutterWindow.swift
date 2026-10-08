@@ -21,6 +21,14 @@ class MainFlutterWindow: NSWindow {
           result(FlutterError(code: "INVALID_ARGUMENTS", message: "Paths should be a list of strings", details: nil))
           return
         }
+        guard !paths.isEmpty, paths.allSatisfy({ self.isSafeRecyclePath($0) }) else {
+          result(FlutterError(
+            code: "UNSAFE_PATH",
+            message: "A operação contém um caminho fora das áreas aprovadas ou um link simbólico.",
+            details: nil
+          ))
+          return
+        }
         let urls = paths.map { URL(fileURLWithPath: $0) }
         NSWorkspace.shared.recycle(urls) { (newURLs, error) in
           if let error = error {
@@ -41,5 +49,41 @@ class MainFlutterWindow: NSWindow {
     self.isMovableByWindowBackground = true
 
     super.awakeFromNib()
+  }
+
+  private func isSafeRecyclePath(_ rawPath: String) -> Bool {
+    let standardizedPath = (rawPath as NSString).standardizingPath
+    let path = standardizedPath.lowercased()
+    let home = (NSHomeDirectory() as NSString).standardizingPath.lowercased()
+
+    let protectedRoots = [
+      "/system", "/applications", "/library", "/bin", "/sbin", "/usr",
+      "/dev", "/etc", "/opt", "/volumes", "/private/etc",
+      "/private/var/db", "/private/var/root", "/private/var/run",
+      "/private/var/vm", "/private/var/protected"
+    ]
+    if path == "/" || path == home || protectedRoots.contains(where: {
+      path == $0 || path.hasPrefix($0 + "/")
+    }) {
+      return false
+    }
+
+    if let attributes = try? FileManager.default.attributesOfItem(atPath: standardizedPath),
+       attributes[.type] as? FileAttributeType == .typeSymbolicLink {
+      return false
+    }
+
+    let allowedRoots = [
+      "Library/Caches", "Library/Logs", "Library/Application Support",
+      "Library/Preferences", "Library/LaunchAgents", "Library/Containers",
+      "Library/Fonts", "Library/Developer/Xcode/DerivedData",
+      "Library/Developer/CoreSimulator/Caches", ".Trash", ".npm/_cacache",
+      ".gradle/caches", ".m2/repository", "Downloads", "Desktop", "Documents"
+    ].map { (home as NSString).appendingPathComponent($0).lowercased() }
+      + ["/private/tmp", "/private/var/tmp"]
+
+    return allowedRoots.contains(where: {
+      path != $0 && path.hasPrefix($0 + "/")
+    })
   }
 }

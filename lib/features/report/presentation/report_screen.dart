@@ -19,13 +19,14 @@ class ReportScreen extends ConsumerWidget {
       scanState.totalCleanedBytes,
     );
     final cleanedCount = scanState.totalCleanedFiles;
+    final hasIssues =
+        scanState.totalSkippedFiles > 0 || scanState.totalFailedFiles > 0;
 
     return MacosWindowShell(
       currentRoute: '/report',
       child: Padding(
         padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: ListView(
           children: [
             // Success animation or check icon
             Container(
@@ -44,9 +45,11 @@ class ReportScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
 
-            const Text(
-              'Limpeza Concluída!',
-              style: TextStyle(
+            Text(
+              hasIssues
+                  ? 'Limpeza concluída com ressalvas'
+                  : 'Limpeza concluída!',
+              style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 letterSpacing: -0.5,
@@ -54,7 +57,9 @@ class ReportScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Seu Mac agradece. O espaço em disco foi liberado com sucesso.',
+              hasIssues
+                  ? 'Os itens seguros foram processados; arquivos protegidos ou com falha foram preservados.'
+                  : 'Os itens selecionados foram processados com segurança.',
               style: TextStyle(
                 fontSize: 13,
                 color: Colors.white.withValues(alpha: 0.4),
@@ -64,8 +69,10 @@ class ReportScreen extends ConsumerWidget {
             const SizedBox(height: 40),
 
             // Summary Stats Cards
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              spacing: 20,
+              runSpacing: 12,
+              alignment: WrapAlignment.center,
               children: [
                 _StatSummaryCard(
                   title: 'Espaço Liberado',
@@ -73,15 +80,62 @@ class ReportScreen extends ConsumerWidget {
                   icon: Icons.speed,
                   iconColor: Theme.of(context).colorScheme.secondary,
                 ),
-                const SizedBox(width: 20),
                 _StatSummaryCard(
                   title: 'Arquivos Removidos',
                   value: '$cleanedCount itens',
                   icon: Icons.delete_sweep_outlined,
                   iconColor: Theme.of(context).primaryColor,
                 ),
+                if (scanState.totalSkippedFiles > 0) ...[
+                  _StatSummaryCard(
+                    title: 'Preservados',
+                    value: '${scanState.totalSkippedFiles} itens',
+                    icon: Icons.shield_outlined,
+                    iconColor: Colors.orangeAccent,
+                  ),
+                ],
+                if (scanState.totalFailedFiles > 0) ...[
+                  _StatSummaryCard(
+                    title: 'Falhas',
+                    value: '${scanState.totalFailedFiles} itens',
+                    icon: Icons.error_outline,
+                    iconColor: Colors.redAccent,
+                  ),
+                ],
               ],
             ),
+            if (scanState.cleanupIssues.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 110),
+                margin: const EdgeInsets.symmetric(horizontal: 40),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orangeAccent.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: Colors.orangeAccent.withValues(alpha: 0.15),
+                  ),
+                ),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: scanState.cleanupIssues.entries.map((entry) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Text(
+                        '${entry.key} — ${entry.value}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 10,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
 
             // Current free space indicator card

@@ -1,4 +1,7 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
+
+import '../constants/scan_paths.dart';
 import '../../features/scanner/domain/entities/scan_item.dart';
 
 class ShellRunner {
@@ -54,11 +57,20 @@ class ShellRunner {
     List<String>? extensions,
     DateTime? olderThan,
     int? maxDepth,
+    List<String> excludedPaths = const [],
   }) async* {
     final dir = Directory(path);
     if (!await dir.exists()) return;
+    if (_isExcluded(path, excludedPaths)) return;
 
-    yield* _listDirHelper(dir, 1, maxDepth, extensions, olderThan);
+    yield* _listDirHelper(
+      dir,
+      1,
+      maxDepth,
+      extensions,
+      olderThan,
+      excludedPaths,
+    );
   }
 
   static Stream<ScanItem> _listDirHelper(
@@ -67,6 +79,7 @@ class ShellRunner {
     int? maxDepth,
     List<String>? extensions,
     DateTime? olderThan,
+    List<String> excludedPaths,
   ) async* {
     if (maxDepth != null && currentDepth > maxDepth) return;
 
@@ -83,6 +96,7 @@ class ShellRunner {
         final stat = await entity.stat();
         final pathStr = entity.path;
         final name = pathStr.split('/').last;
+        if (_isExcluded(pathStr, excludedPaths)) continue;
 
         if (stat.type == FileSystemEntityType.file) {
           if (extensions != null) {
@@ -128,6 +142,7 @@ class ShellRunner {
               maxDepth,
               extensions,
               olderThan,
+              excludedPaths,
             );
           }
         } else if (stat.type == FileSystemEntityType.link) {
@@ -144,5 +159,22 @@ class ShellRunner {
         // Suppress and continue for files with lock/permission errors
       }
     }
+  }
+
+  static bool _isExcluded(String candidate, List<String> excludedPaths) {
+    final normalizedCandidate = p
+        .normalize(ScanPaths.expandPath(candidate))
+        .toLowerCase();
+    for (final excludedPath in excludedPaths) {
+      final normalizedExcluded = p
+          .normalize(ScanPaths.expandPath(excludedPath.trim()))
+          .toLowerCase();
+      if (!p.isAbsolute(normalizedExcluded)) continue;
+      if (normalizedCandidate == normalizedExcluded ||
+          p.isWithin(normalizedExcluded, normalizedCandidate)) {
+        return true;
+      }
+    }
+    return false;
   }
 }

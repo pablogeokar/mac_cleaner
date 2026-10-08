@@ -29,6 +29,9 @@ class ScanState {
   final int totalSelectedFiles;
   final int totalCleanedBytes;
   final int totalCleanedFiles;
+  final int totalSkippedFiles;
+  final int totalFailedFiles;
+  final Map<String, String> cleanupIssues;
   final double overallProgress;
   final Map<ScanCategoryType, double> categoryProgresses;
 
@@ -42,6 +45,9 @@ class ScanState {
     required this.totalSelectedFiles,
     required this.totalCleanedBytes,
     required this.totalCleanedFiles,
+    required this.totalSkippedFiles,
+    required this.totalFailedFiles,
+    required this.cleanupIssues,
     required this.overallProgress,
     required this.categoryProgresses,
   });
@@ -56,6 +62,9 @@ class ScanState {
     int? totalSelectedFiles,
     int? totalCleanedBytes,
     int? totalCleanedFiles,
+    int? totalSkippedFiles,
+    int? totalFailedFiles,
+    Map<String, String>? cleanupIssues,
     double? overallProgress,
     Map<ScanCategoryType, double>? categoryProgresses,
   }) {
@@ -69,6 +78,9 @@ class ScanState {
       totalSelectedFiles: totalSelectedFiles ?? this.totalSelectedFiles,
       totalCleanedBytes: totalCleanedBytes ?? this.totalCleanedBytes,
       totalCleanedFiles: totalCleanedFiles ?? this.totalCleanedFiles,
+      totalSkippedFiles: totalSkippedFiles ?? this.totalSkippedFiles,
+      totalFailedFiles: totalFailedFiles ?? this.totalFailedFiles,
+      cleanupIssues: cleanupIssues ?? this.cleanupIssues,
       overallProgress: overallProgress ?? this.overallProgress,
       categoryProgresses: categoryProgresses ?? this.categoryProgresses,
     );
@@ -93,6 +105,7 @@ DeleteItemsUseCase deleteItemsUseCase(Ref ref) {
 @riverpod
 class ScannerNotifier extends _$ScannerNotifier {
   final List<StreamSubscription> _subscriptions = [];
+  Set<ScanCategoryType> _activeScanTypes = {};
   bool _isCancelled = false;
 
   @override
@@ -112,6 +125,9 @@ class ScannerNotifier extends _$ScannerNotifier {
       totalSelectedFiles: 0,
       totalCleanedBytes: 0,
       totalCleanedFiles: 0,
+      totalSkippedFiles: 0,
+      totalFailedFiles: 0,
+      cleanupIssues: const {},
       overallProgress: 0.0,
       categoryProgresses: {for (var type in ScanCategoryType.values) type: 0.0},
     );
@@ -123,15 +139,14 @@ class ScannerNotifier extends _$ScannerNotifier {
         type: ScanCategoryType.systemCache,
         displayName: 'Cache do Sistema',
         description:
-            'Arquivos temporários criados pelo macOS e aplicativos do sistema.',
+            'Caches antigos da biblioteca do usuário, que podem ser recriados.',
         icon: Icons.cached,
         targetPaths: ScanPaths.systemCachePaths,
       ),
       const ScanCategory(
         type: ScanCategoryType.systemLogs,
         displayName: 'Logs do Sistema',
-        description:
-            'Logs de erros e relatórios de diagnósticos gerados pelo sistema.',
+        description: 'Logs antigos do usuário e dos aplicativos instalados.',
         icon: Icons.description,
         targetPaths: ScanPaths.systemLogsPaths,
       ),
@@ -154,17 +169,18 @@ class ScannerNotifier extends _$ScannerNotifier {
         type: ScanCategoryType.appCache,
         displayName: 'Caches de Desenvolvedor',
         description:
-            'Pastas DerivedData, simuladores, caches do npm/pip/gradle/brew.',
+            'Caches recriáveis de Xcode, npm, pip, Gradle, Maven e Homebrew.',
         icon: Icons.developer_mode,
         targetPaths: [], // resolved dynamically
       ),
       const ScanCategory(
         type: ScanCategoryType.largeFiles,
-        displayName: 'Arquivos Grandes (>500MB)',
+        displayName: 'Arquivos Grandes',
         description:
             'Arquivos que ocupam muito espaço. Deletados apenas sob confirmação.',
         icon: Icons.insert_drive_file,
         targetPaths: ScanPaths.userRoots,
+        isSelected: false,
       ),
       const ScanCategory(
         type: ScanCategoryType.duplicates,
@@ -172,6 +188,7 @@ class ScannerNotifier extends _$ScannerNotifier {
         description: 'Arquivos idênticos duplicados nas pastas do usuário.',
         icon: Icons.copy,
         targetPaths: ScanPaths.userRoots,
+        isSelected: false,
       ),
       const ScanCategory(
         type: ScanCategoryType.appResiduals,
@@ -179,6 +196,7 @@ class ScannerNotifier extends _$ScannerNotifier {
         description: 'Arquivos de suporte órfãos de aplicativos desinstalados.',
         icon: Icons.cleaning_services,
         targetPaths: ScanPaths.residualSearchPaths,
+        isSelected: false,
       ),
       const ScanCategory(
         type: ScanCategoryType.duplicateFonts,
@@ -186,6 +204,7 @@ class ScannerNotifier extends _$ScannerNotifier {
         description: 'Fontes idênticas instaladas em mais de um diretório.',
         icon: Icons.font_download,
         targetPaths: ScanPaths.fontPaths,
+        isSelected: false,
       ),
     ];
   }
@@ -195,9 +214,15 @@ class ScannerNotifier extends _$ScannerNotifier {
       categories: state.categories.map((cat) {
         if (cat.type == type) {
           final newSelect = !cat.isSelected;
-          // Apply selection to all children items
           final updatedItems = cat.items
-              .map((i) => i.copyWith(isSelected: newSelect))
+              .map(
+                (item) => item.copyWith(
+                  isSelected:
+                      newSelect &&
+                      item.isSafeToDelete &&
+                      item.riskLevel == ScanRiskLevel.safe,
+                ),
+              )
               .toList();
           return cat.copyWith(isSelected: newSelect, items: updatedItems);
         }
@@ -212,7 +237,7 @@ class ScannerNotifier extends _$ScannerNotifier {
       categories: state.categories.map((cat) {
         if (cat.type == categoryType) {
           final updatedItems = cat.items.map((item) {
-            if (item.path == itemPath) {
+            if (item.path == itemPath && item.isSafeToDelete) {
               return item.copyWith(isSelected: !item.isSelected);
             }
             return item;
@@ -232,12 +257,10 @@ class ScannerNotifier extends _$ScannerNotifier {
     int selFiles = 0;
 
     for (final cat in state.categories) {
-      if (cat.isSelected) {
-        for (final item in cat.items) {
-          if (item.isSelected) {
-            selBytes += item.sizeBytes;
-            selFiles++;
-          }
+      for (final item in cat.items) {
+        if (item.isSelected && item.isSafeToDelete) {
+          selBytes += item.sizeBytes;
+          selFiles++;
         }
       }
     }
@@ -253,7 +276,14 @@ class ScannerNotifier extends _$ScannerNotifier {
       categories: state.categories.map((cat) {
         if (cat.type == type) {
           final updatedItems = cat.items
-              .map((i) => i.copyWith(isSelected: select))
+              .map(
+                (item) => item.copyWith(
+                  isSelected:
+                      select &&
+                      item.isSafeToDelete &&
+                      item.riskLevel == ScanRiskLevel.safe,
+                ),
+              )
               .toList();
           return cat.copyWith(isSelected: select, items: updatedItems);
         }
@@ -293,6 +323,7 @@ class ScannerNotifier extends _$ScannerNotifier {
       );
       return false;
     }
+    _activeScanTypes = targets.toSet();
 
     final initialCategories = _initializeCategories().map((category) {
       final isSelected = selectedTypes.contains(category.type);
@@ -310,6 +341,9 @@ class ScannerNotifier extends _$ScannerNotifier {
       totalSelectedFiles: 0,
       totalCleanedBytes: 0,
       totalCleanedFiles: 0,
+      totalSkippedFiles: 0,
+      totalFailedFiles: 0,
+      cleanupIssues: const {},
       overallProgress: 0.0,
       categoryProgresses: {for (var type in ScanCategoryType.values) type: 0.0},
     );
@@ -343,6 +377,8 @@ class ScannerNotifier extends _$ScannerNotifier {
             currentCatType,
             largeFileThresholdBytes: settings.largeFileMinSizeBytes,
             tempFileAgeHours: settings.tempFileMinAgeHours,
+            systemCacheAgeDays: settings.systemCacheMinAgeDays,
+            excludedPaths: settings.excludedPaths,
           );
 
       final subscription = stream.listen(
@@ -399,15 +435,12 @@ class ScannerNotifier extends _$ScannerNotifier {
     )..[progress.category] = progress.progress;
 
     // Recalculate overall progress
-    final scanningCats = state.categories
-        .where((c) => c.isScanning || c.fileCount > 0 || c.totalBytes > 0)
-        .length;
-    double progressSum = 0.0;
-    for (final val in updatedProgresses.values) {
-      progressSum += val;
-    }
-    final overall = scanningCats > 0
-        ? progressSum / ScanCategoryType.values.length
+    final progressSum = _activeScanTypes.fold<double>(
+      0,
+      (total, type) => total + (updatedProgresses[type] ?? 0),
+    );
+    final overall = _activeScanTypes.isNotEmpty
+        ? progressSum / _activeScanTypes.length
         : 0.0;
 
     // Update categories by injecting current scanned items
@@ -418,14 +451,27 @@ class ScannerNotifier extends _$ScannerNotifier {
           fileCount: progress.itemsFound,
           totalBytes: progress.bytesFound,
           isScanning: !progress.isComplete,
+          isSelected: progress.isComplete
+              ? progress.items.any((item) => item.isSelected)
+              : cat.isSelected,
         );
       }
       return cat;
     }).toList();
+    final totalFiles = updatedCategories.fold<int>(
+      0,
+      (total, category) => total + category.fileCount,
+    );
+    final totalBytes = updatedCategories.fold<int>(
+      0,
+      (total, category) => total + category.totalBytes,
+    );
 
     state = state.copyWith(
       categoryProgresses: updatedProgresses,
       categories: updatedCategories,
+      totalScannedFiles: totalFiles,
+      totalScannedBytes: totalBytes,
       overallProgress: min(
         overall,
         0.99,
@@ -451,6 +497,7 @@ class ScannerNotifier extends _$ScannerNotifier {
   /// Cancels any active scan streams.
   void cancelScan() {
     _isCancelled = true;
+    _activeScanTypes = {};
     for (final sub in _subscriptions) {
       sub.cancel();
     }
@@ -471,6 +518,15 @@ class ScannerNotifier extends _$ScannerNotifier {
       state = state.copyWith(
         currentProgressLog:
             'A limpeza só pode ser iniciada após uma varredura concluída.',
+      );
+      return false;
+    }
+
+    final settings = ref.read(settingsProvider);
+    if (permanent && !settings.allowPermanentDeletion) {
+      state = state.copyWith(
+        currentProgressLog:
+            'A exclusão permanente está bloqueada nas configurações.',
       );
       return false;
     }
@@ -496,24 +552,23 @@ class ScannerNotifier extends _$ScannerNotifier {
     }
 
     try {
-      await ref
+      final result = await ref
           .read(deleteItemsUseCaseProvider)
-          .call(selectedItems, permanent: permanent);
-
-      // Recalculate how much space was cleared
-      int clearedBytes = 0;
-      int clearedFiles = 0;
-      for (final item in selectedItems) {
-        clearedBytes += item.sizeBytes;
-        clearedFiles++;
-      }
+          .call(
+            selectedItems,
+            permanent: permanent,
+            excludedPaths: settings.excludedPaths,
+          );
 
       // Update disk information gauge on dashboard
       unawaited(ref.read(diskInfoNotifierProvider.notifier).refresh());
 
-      // Update categories by removing deleted files
+      final removedPaths = result.removedItems.map((item) => item.path).toSet();
       final updatedCategories = state.categories.map((cat) {
-        final remainingItems = cat.items.where((i) => !i.isSelected).toList();
+        final remainingItems = cat.items
+            .where((item) => !removedPaths.contains(item.path))
+            .map((item) => item.copyWith(isSelected: false))
+            .toList();
         final remainingBytes = remainingItems.fold<int>(
           0,
           (sum, i) => sum + i.sizeBytes,
@@ -522,18 +577,23 @@ class ScannerNotifier extends _$ScannerNotifier {
           items: remainingItems,
           fileCount: remainingItems.length,
           totalBytes: remainingBytes,
-          isSelected: remainingItems.isNotEmpty,
+          isSelected: remainingItems.any((item) => item.isSelected),
         );
       }).toList();
 
       state = state.copyWith(
         status: ScannerStatus.finished,
         categories: updatedCategories,
-        totalCleanedBytes: clearedBytes,
-        totalCleanedFiles: clearedFiles,
+        totalCleanedBytes: result.removedBytes,
+        totalCleanedFiles: result.removedCount,
+        totalSkippedFiles: result.skippedCount,
+        totalFailedFiles: result.failedCount,
+        cleanupIssues: {...result.skippedItems, ...result.failedItems},
         totalSelectedBytes: 0,
         totalSelectedFiles: 0,
-        currentProgressLog: 'Limpeza concluída com sucesso!',
+        currentProgressLog: result.failedCount == 0 && result.skippedCount == 0
+            ? 'Limpeza concluída com sucesso!'
+            : 'Limpeza concluída com itens preservados ou com falha.',
       );
       return true;
     } catch (e) {
@@ -548,6 +608,7 @@ class ScannerNotifier extends _$ScannerNotifier {
   void resetToDashboard() {
     state = state.copyWith(
       status: ScannerStatus.idle,
+      categories: _initializeCategories(),
       overallProgress: 0.0,
       totalScannedBytes: 0,
       totalScannedFiles: 0,
@@ -555,6 +616,9 @@ class ScannerNotifier extends _$ScannerNotifier {
       totalSelectedFiles: 0,
       totalCleanedBytes: 0,
       totalCleanedFiles: 0,
+      totalSkippedFiles: 0,
+      totalFailedFiles: 0,
+      cleanupIssues: const {},
       currentProgressLog: 'Pronto para escanear.',
     );
   }

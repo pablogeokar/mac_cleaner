@@ -1,5 +1,7 @@
 enum ScanItemType { file, directory, symlink }
 
+enum ScanRiskLevel { safe, caution, protected }
+
 class ScanItem {
   final String path;
   final String fileName;
@@ -8,6 +10,7 @@ class ScanItem {
   final DateTime lastAccessed;
   final ScanItemType type;
   final bool isSafeToDelete;
+  final ScanRiskLevel riskLevel;
   final String? reason;
   final bool isSelected;
 
@@ -19,6 +22,7 @@ class ScanItem {
     required this.lastAccessed,
     required this.type,
     this.isSafeToDelete = true,
+    this.riskLevel = ScanRiskLevel.safe,
     this.reason,
     this.isSelected = true,
   });
@@ -31,6 +35,7 @@ class ScanItem {
     DateTime? lastAccessed,
     ScanItemType? type,
     bool? isSafeToDelete,
+    ScanRiskLevel? riskLevel,
     String? reason,
     bool? isSelected,
   }) {
@@ -42,6 +47,7 @@ class ScanItem {
       lastAccessed: lastAccessed ?? this.lastAccessed,
       type: type ?? this.type,
       isSafeToDelete: isSafeToDelete ?? this.isSafeToDelete,
+      riskLevel: riskLevel ?? this.riskLevel,
       reason: reason ?? this.reason,
       isSelected: isSelected ?? this.isSelected,
     );

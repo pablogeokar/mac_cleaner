@@ -1,3 +1,4 @@
+import '../entities/cleanup_result.dart';
 import '../entities/scan_item.dart';
 import '../repositories/file_scanner_repository.dart';
 
@@ -6,7 +7,15 @@ class DeleteItemsUseCase {
 
   DeleteItemsUseCase(this.repository);
 
-  Future<void> call(List<ScanItem> items, {required bool permanent}) {
-    return repository.deleteItems(items, permanent: permanent);
+  Future<CleanupResult> call(
+    List<ScanItem> items, {
+    required bool permanent,
+    List<String> excludedPaths = const [],
+  }) {
+    return repository.deleteItems(
+      items,
+      permanent: permanent,
+      excludedPaths: excludedPaths,
+    );
   }
 }

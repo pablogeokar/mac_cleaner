@@ -25,9 +25,13 @@ class DiskInfoRepositoryImpl implements DiskInfoRepository {
 
     final fileSystem = parts[0];
     final totalKb = int.tryParse(parts[1]) ?? 0;
-    final usedKb = int.tryParse(parts[2]) ?? 0;
     final freeKb = int.tryParse(parts[3]) ?? 0;
     final mountPoint = parts.last;
+
+    // On APFS, `df` reports usage for the mounted system volume in the Used
+    // column while Available is shared by the whole container. For a disk
+    // capacity gauge, total minus available is the consistent value.
+    final usedKb = totalKb > freeKb ? totalKb - freeKb : 0;
 
     return DiskInfo(
       totalBytes: totalKb * 1024,

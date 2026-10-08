@@ -41,11 +41,14 @@ Algumas categorias podem afetar ferramentas de desenvolvimento, simuladores, ger
 - Checkboxes no Dashboard que controlam quais categorias serão varridas.
 - Resultados organizados por categoria.
 - Filtro e ordenação de arquivos na tela de resultados.
-- Controles de seleção por categoria e por arquivo.
-- Modal de confirmação antes da limpeza.
+- Classificação por risco: recomendado, revisar e protegido.
+- Controles de seleção que nunca incluem itens protegidos em ações em massa.
+- Confirmação digitada para a exclusão permanente, que é bloqueada por padrão.
 - Integração nativa com a Lixeira do macOS via `NSWorkspace.recycle`.
-- Tela de configurações para limites de varredura e caminhos excluídos.
-- Exportação de log CSV somente em modo debug, com ação para revelar no Finder.
+- Validação de caminhos em Dart e novamente na ponte nativa do macOS.
+- Configurações persistentes para limites, segurança e caminhos excluídos.
+- Exportação CSV em builds debug e release, busca por risco e ação para revelar no Finder.
+- Relatório real de itens removidos, preservados e com falha.
 - Ícone nativo e nome do bundle configurados como MacCleaner.
 
 ## Categorias de Varredura
@@ -62,7 +65,7 @@ O MacCleaner atualmente inclui suporte para:
 - Resíduos de aplicativos
 - Fontes duplicadas
 
-Nem todas as categorias estão prontas para uso em produção. Algumas regras de detecção são conservadoras na interface, mas o scanner ainda precisa de validações mais fortes antes de ser usado como ferramenta de limpeza real.
+As categorias de maior risco são desmarcadas por padrão e exigem revisão manual. Mesmo com as proteções em camadas, mantenha backups e revise os itens antes da limpeza.
 
 ## Stack Técnica
 
@@ -157,7 +160,7 @@ Rode os testes:
 flutter test
 ```
 
-Observação: os testes unitários para os casos de uso do scanner e para a proteção de deleção ainda precisam ser implementados.
+As regras críticas de proteção de caminhos e exclusões possuem testes unitários; a cobertura dos demais casos de uso ainda deve ser ampliada.
 
 ## Permissões no macOS
 
@@ -168,25 +171,19 @@ Para distribuição pela Mac App Store, o modelo de permissões precisaria mudar
 ## Limitações Conhecidas
 
 - Operações pesadas de varredura ainda não usam `Isolate.run` ou `compute`.
-- A segurança de deleção precisa de normalização de paths mais robusta e cobertura de testes.
-- Deleção permanente precisa de confirmação mais rígida.
-- Parte da tela de configurações ainda não está conectada a automações reais do macOS.
-- A detecção de resíduos de apps deve usar bundle IDs em vez de comparação aproximada por nome.
+- Inicialização no login e varreduras agendadas em segundo plano ainda não foram implementadas.
+- A identificação de resíduos usa bundle IDs, mas permanece conservadora e exige revisão manual.
 - A detecção de fontes duplicadas deve usar metadados da fonte, não nomes de arquivo.
 - O cálculo de hash para duplicados deve sair do isolate principal da UI.
-- Testes automatizados ainda não foram implementados.
+- A cobertura automatizada ainda precisa ser ampliada além das regras críticas de caminhos e exclusões.
 
 ## Roadmap
 
 Segurança e correção:
 
-- Adicionar testes unitários para segurança de deleção e casos de uso do scanner.
-- Reforçar as regras de limpeza por categoria.
-- Tornar a deleção permanente opcional e protegida por dupla confirmação.
-- Manter categorias arriscadas desmarcadas por padrão, especialmente resíduos de apps, fontes duplicadas, Docker, Android AVDs e dados de simuladores.
-- Adicionar um relatório de simulação explicando por que cada item é considerado seguro ou arriscado.
-- Adicionar allowlists e blocklists específicas por categoria.
-- Adicionar canonicalização de paths e verificações seguras para symlinks.
+- Ampliar testes dos casos de uso do scanner e da ponte nativa.
+- Adicionar regras específicas por aplicativo sem ampliar as áreas aprovadas para exclusão.
+- Adicionar uma simulação exportável antes da limpeza.
 
 Motor de varredura:
 
@@ -195,24 +192,18 @@ Motor de varredura:
 - Melhorar detecção de duplicados com hashing em etapas e verificação contra colisões.
 - Detectar fontes duplicadas usando metadados da fonte em vez de nomes de arquivo.
 - Melhorar a qualidade da detecção de duplicados e resíduos.
-- Detectar resíduos de apps usando bundle IDs dos aplicativos instalados.
 - Melhorar regras para Docker, simuladores, Gradle, Maven, Homebrew e caches Android.
 
 Experiência do usuário:
 
 - Adicionar histórico persistente de limpezas.
 - Adicionar uma tela de revisão agrupada por nível de risco.
-- Adicionar ação "Revelar no Finder" para itens individuais da varredura.
-- Adicionar exportação CSV em builds release, não apenas logs debug.
-- Adicionar busca por caminho, categoria e nível de risco.
 - Melhorar estados vazios, carregando, erro e permissões parciais.
-- Adicionar feedback mais claro após a limpeza, incluindo arquivos ignorados e falhas ao mover.
 
 Configurações e automação:
 
 - Implementar inicialização ao login com LaunchAgent real ou integração de login item do macOS.
 - Implementar varreduras automáticas semanais.
-- Persistir configurações do usuário com `shared_preferences` ou SQLite.
 - Adicionar edição de caminhos excluídos com seletor de pasta do Finder.
 - Adicionar limites por categoria para idade e tamanho dos arquivos.
 
@@ -222,4 +213,3 @@ Distribuição:
 - Preparar build `.dmg` para download direto.
 - Investigar uma variante compatível com a Mac App Store usando security-scoped bookmarks.
 - Adicionar CI para análise, testes e builds macOS.
-

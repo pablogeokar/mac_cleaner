@@ -41,11 +41,14 @@ Some categories can affect development tools, simulators, package managers, Dock
 - Dashboard category checkboxes that control which categories are scanned.
 - Category-based scan results.
 - File filtering and sorting in the results screen.
-- Selection controls for categories and individual files.
-- Cleanup confirmation dialog.
+- Risk classification: recommended, review, and protected.
+- Selection controls that never include protected items in bulk actions.
+- Typed confirmation for permanent deletion, which is locked by default.
 - Native macOS Trash integration through `NSWorkspace.recycle`.
-- Settings screen for scan thresholds and excluded paths.
-- Debug-only CSV scan log export, including a Finder reveal action.
+- Path validation in Dart and again in the native macOS bridge.
+- Persistent settings for thresholds, safety, and excluded paths.
+- CSV export in debug and release builds, risk filtering, and per-item Finder reveal.
+- Accurate reporting of removed, preserved, and failed items.
 - Native macOS app icon and bundle display name configured as MacCleaner.
 
 ## Scan Categories
@@ -62,7 +65,7 @@ MacCleaner currently includes category support for:
 - App residual files
 - Duplicate fonts
 
-Not every category is fully production-safe yet. Some detection rules are intentionally conservative in the UI, but the scanner still needs stronger validation before real-world cleanup use.
+Higher-risk categories are unselected by default and require manual review. Even with layered safeguards, keep backups and review items before cleanup.
 
 ## Tech Stack
 
@@ -157,7 +160,7 @@ Run tests:
 flutter test
 ```
 
-Note: unit tests still need to be added for the scanner use cases and deletion safety guard.
+Critical path-protection and exclusion rules have unit tests; coverage for the remaining scanner use cases should still be expanded.
 
 ## macOS Permissions
 
@@ -168,25 +171,19 @@ For Mac App Store distribution, the permissions model would need to change to us
 ## Known Gaps
 
 - Scanner-heavy work is not yet isolated with `Isolate.run` or `compute`.
-- Deletion safety needs stronger path normalization and test coverage.
-- Permanent deletion needs stricter confirmation.
-- Some settings UI is not fully wired to real macOS automation yet.
-- App residual detection should use bundle IDs instead of approximate name matching.
+- Launch at login and scheduled background scans are not implemented yet.
+- Residual detection uses bundle IDs but remains conservative and requires manual review.
 - Duplicate font detection should use font metadata rather than file names.
 - Duplicate file hashing should move off the UI isolate.
-- Automated tests are not implemented yet.
+- Automated coverage should be expanded beyond critical path and exclusion rules.
 
 ## Roadmap
 
 Safety and correctness:
 
-- Add unit tests for deletion safety and scanner use cases.
-- Harden cleanup rules by category.
-- Make permanent deletion opt-in behind stronger double confirmation.
-- Keep risky categories unselected by default, especially app residuals, duplicate fonts, Docker, Android AVDs, and simulator data.
-- Add a dry-run report that explains why each item is considered safe or risky.
-- Add category-specific allowlists and blocklists.
-- Add path canonicalization and symlink-aware safety checks.
+- Expand scanner use-case and native bridge tests.
+- Add application-specific rules without expanding approved deletion areas.
+- Add an exportable dry run before cleanup.
 
 Scanner engine:
 
@@ -195,24 +192,18 @@ Scanner engine:
 - Improve duplicate detection with staged hashing and collision-safe verification.
 - Detect duplicate fonts using font metadata instead of file names.
 - Improve duplicate and residual detection quality.
-- Detect app residuals using installed app bundle identifiers.
 - Improve Docker, simulator, Gradle, Maven, Homebrew, and Android cache detection with safer rules.
 
 User experience:
 
 - Add persistent cleanup history.
 - Add a review screen grouped by risk level.
-- Add a "Reveal in Finder" action for individual scan items.
-- Add CSV export for normal release builds, not only debug scan logs.
-- Add search by path, category, and risk level.
 - Add better empty, loading, error, and partial-permission states.
-- Add clearer feedback after cleanup, including skipped files and failed moves.
 
 Settings and automation:
 
 - Implement launch at login with a real LaunchAgent or macOS login item integration.
 - Implement weekly automatic scans.
-- Persist user settings with `shared_preferences` or SQLite.
 - Add editable excluded paths with Finder folder picker support.
 - Add per-category thresholds for file age and size.
 

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/utils/file_size_formatter.dart';
@@ -19,6 +21,16 @@ class FileItemRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sizeStr = FileSizeFormatter.format(item.sizeBytes);
     final hasReason = item.reason != null && item.reason!.isNotEmpty;
+    final riskColor = switch (item.riskLevel) {
+      ScanRiskLevel.safe => const Color(0xFF68D391),
+      ScanRiskLevel.caution => Colors.orangeAccent,
+      ScanRiskLevel.protected => Colors.redAccent,
+    };
+    final riskLabel = switch (item.riskLevel) {
+      ScanRiskLevel.safe => 'Recomendado',
+      ScanRiskLevel.caution => 'Revisar',
+      ScanRiskLevel.protected => 'Protegido',
+    };
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -85,18 +97,14 @@ class FileItemRow extends ConsumerWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).primaryColor.withValues(alpha: 0.06),
+                      color: riskColor.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       item.reason!,
                       style: TextStyle(
                         fontSize: 9,
-                        color: Theme.of(
-                          context,
-                        ).primaryColor.withValues(alpha: 0.8),
+                        color: riskColor.withValues(alpha: 0.9),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -106,6 +114,31 @@ class FileItemRow extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: riskColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: riskColor.withValues(alpha: 0.25)),
+            ),
+            child: Text(
+              riskLabel,
+              style: TextStyle(
+                fontSize: 9,
+                color: riskColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Revelar no Finder',
+            onPressed: () => Process.run('open', ['-R', item.path]),
+            icon: const Icon(
+              Icons.folder_open_outlined,
+              size: 16,
+              color: Colors.white38,
+            ),
+          ),
           Text(
             sizeStr,
             style: TextStyle(
