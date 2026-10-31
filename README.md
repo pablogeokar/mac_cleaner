@@ -173,6 +173,7 @@ For Mac App Store distribution, the permissions model would need to change to us
 - Scanner-heavy work is not yet isolated with `Isolate.run` or `compute`.
 - Launch at login and scheduled background scans are not implemented yet.
 - Residual detection uses bundle IDs but remains conservative and requires manual review.
+- Other apps' containers in `~/Library/Containers` appear as possible residuals and require an explicit selection. macOS may request permission to access or move this data; denied items are preserved.
 - Duplicate font detection should use font metadata rather than file names.
 - Duplicate file hashing should move off the UI isolate.
 - Automated coverage should be expanded beyond critical path and exclusion rules.

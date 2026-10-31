@@ -32,10 +32,44 @@ class MainFlutterWindow: NSWindow {
         let urls = paths.map { URL(fileURLWithPath: $0) }
         NSWorkspace.shared.recycle(urls) { (newURLs, error) in
           if let error = error {
-            result(FlutterError(code: "RECYCLE_ERROR", message: error.localizedDescription, details: nil))
+            if self.isPermissionError(error as NSError) {
+              result(FlutterError(
+                code: "PERMISSION_DENIED",
+                message: "O macOS não autorizou mover este item para a Lixeira.",
+                details: nil
+              ))
+            } else {
+              result(FlutterError(code: "RECYCLE_ERROR", message: error.localizedDescription, details: nil))
+            }
           } else {
             result(true)
           }
+        }
+      } else if call.method == "openPrivacySettings" {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else {
+          result(false)
+          return
+        }
+        result(NSWorkspace.shared.open(url))
+      } else if call.method == "requestContainerAccess" {
+        guard let path = call.arguments as? String,
+              self.isAppContainerPath(path),
+              self.isSafeRecyclePath(path) else {
+          result(FlutterError(code: "UNSAFE_PATH", message: "Contêiner inválido.", details: nil))
+          return
+        }
+        do {
+          _ = try FileManager.default.contentsOfDirectory(atPath: path)
+          result(true)
+        } catch {
+          let permissionDenied = self.isPermissionError(error as NSError)
+          result(FlutterError(
+            code: permissionDenied ? "PERMISSION_DENIED" : "ACCESS_ERROR",
+            message: permissionDenied
+              ? "O macOS não autorizou o acesso ao contêiner."
+              : error.localizedDescription,
+            details: nil
+          ))
         }
       } else {
         result(FlutterMethodNotImplemented)
@@ -85,5 +119,26 @@ class MainFlutterWindow: NSWindow {
     return allowedRoots.contains(where: {
       path != $0 && path.hasPrefix($0 + "/")
     })
+  }
+
+  private func isPermissionError(_ error: NSError) -> Bool {
+    if error.domain == NSCocoaErrorDomain &&
+        [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(error.code) {
+      return true
+    }
+    if error.domain == NSPOSIXErrorDomain && [Int(EACCES), Int(EPERM)].contains(error.code) {
+      return true
+    }
+    if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+      return isPermissionError(underlying)
+    }
+    return false
+  }
+
+  private func isAppContainerPath(_ rawPath: String) -> Bool {
+    let path = (rawPath as NSString).standardizingPath.lowercased()
+    let root = ((NSHomeDirectory() as NSString).appendingPathComponent("Library/Containers") as NSString)
+      .standardizingPath.lowercased()
+    return path.hasPrefix(root + "/")
   }
 }

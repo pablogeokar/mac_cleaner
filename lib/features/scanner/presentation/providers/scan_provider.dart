@@ -32,6 +32,7 @@ class ScanState {
   final int totalSkippedFiles;
   final int totalFailedFiles;
   final Map<String, String> cleanupIssues;
+  final Set<String> permissionDeniedPaths;
   final double overallProgress;
   final Map<ScanCategoryType, double> categoryProgresses;
   final List<ScanCategoryType> scanTargets;
@@ -50,6 +51,7 @@ class ScanState {
     required this.totalSkippedFiles,
     required this.totalFailedFiles,
     required this.cleanupIssues,
+    required this.permissionDeniedPaths,
     required this.overallProgress,
     required this.categoryProgresses,
     required this.scanTargets,
@@ -69,6 +71,7 @@ class ScanState {
     int? totalSkippedFiles,
     int? totalFailedFiles,
     Map<String, String>? cleanupIssues,
+    Set<String>? permissionDeniedPaths,
     double? overallProgress,
     Map<ScanCategoryType, double>? categoryProgresses,
     List<ScanCategoryType>? scanTargets,
@@ -87,6 +90,8 @@ class ScanState {
       totalSkippedFiles: totalSkippedFiles ?? this.totalSkippedFiles,
       totalFailedFiles: totalFailedFiles ?? this.totalFailedFiles,
       cleanupIssues: cleanupIssues ?? this.cleanupIssues,
+      permissionDeniedPaths:
+          permissionDeniedPaths ?? this.permissionDeniedPaths,
       overallProgress: overallProgress ?? this.overallProgress,
       categoryProgresses: categoryProgresses ?? this.categoryProgresses,
       scanTargets: scanTargets ?? this.scanTargets,
@@ -135,6 +140,7 @@ class ScannerNotifier extends _$ScannerNotifier {
       totalSkippedFiles: 0,
       totalFailedFiles: 0,
       cleanupIssues: const {},
+      permissionDeniedPaths: const {},
       overallProgress: 0.0,
       categoryProgresses: {for (var type in ScanCategoryType.values) type: 0.0},
       scanTargets: const [],
@@ -202,7 +208,8 @@ class ScannerNotifier extends _$ScannerNotifier {
       const ScanCategory(
         type: ScanCategoryType.appResiduals,
         displayName: 'Resíduos de Apps',
-        description: 'Arquivos de suporte órfãos de aplicativos desinstalados.',
+        description:
+            'Arquivos de suporte e contêineres de apps possivelmente desinstalados.',
         icon: Icons.cleaning_services,
         targetPaths: ScanPaths.residualSearchPaths,
         isSelected: false,
@@ -352,6 +359,7 @@ class ScannerNotifier extends _$ScannerNotifier {
       totalSkippedFiles: 0,
       totalFailedFiles: 0,
       cleanupIssues: const {},
+      permissionDeniedPaths: const {},
       overallProgress: 0.0,
       categoryProgresses: {for (var type in ScanCategoryType.values) type: 0.0},
       scanTargets: targets,
@@ -610,6 +618,7 @@ class ScannerNotifier extends _$ScannerNotifier {
         totalSkippedFiles: result.skippedCount,
         totalFailedFiles: result.failedCount,
         cleanupIssues: {...result.skippedItems, ...result.failedItems},
+        permissionDeniedPaths: result.permissionDeniedPaths,
         totalSelectedBytes: 0,
         totalSelectedFiles: 0,
         currentProgressLog: result.failedCount == 0 && result.skippedCount == 0
@@ -642,6 +651,7 @@ class ScannerNotifier extends _$ScannerNotifier {
       totalSkippedFiles: 0,
       totalFailedFiles: 0,
       cleanupIssues: const {},
+      permissionDeniedPaths: const {},
       currentProgressLog: 'Pronto para escanear.',
     );
   }

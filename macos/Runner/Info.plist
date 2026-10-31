@@ -36,5 +36,7 @@
 	<string>MacCleaner precisa acessar Downloads para detectar arquivos temporários e incompletos.</string>
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>MacCleaner precisa acessar a Área de Trabalho para verificar arquivos grandes.</string>
+	<key>NSAppDataUsageDescription</key>
+	<string>MacCleaner precisa acessar os contêineres dos apps que você selecionar para revisão e limpeza. Nenhum contêiner será movido para a Lixeira sem sua confirmação.</string>
 </dict>
 </plist>

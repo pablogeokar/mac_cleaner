@@ -173,6 +173,7 @@ Para distribuição pela Mac App Store, o modelo de permissões precisaria mudar
 - Operações pesadas de varredura ainda não usam `Isolate.run` ou `compute`.
 - Inicialização no login e varreduras agendadas em segundo plano ainda não foram implementadas.
 - A identificação de resíduos usa bundle IDs, mas permanece conservadora e exige revisão manual.
+- Contêineres de outros apps em `~/Library/Containers` aparecem como possíveis resíduos e exigem seleção consciente. O macOS pode solicitar autorização para acessar ou mover esses dados; se a permissão for negada, o item é preservado.
 - A detecção de fontes duplicadas deve usar metadados da fonte, não nomes de arquivo.
 - O cálculo de hash para duplicados deve sair do isolate principal da UI.
 - A cobertura automatizada ainda precisa ser ampliada além das regras críticas de caminhos e exclusões.

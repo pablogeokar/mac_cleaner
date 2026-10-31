@@ -15,6 +15,9 @@ import '../../domain/repositories/file_scanner_repository.dart';
 
 class FileScannerRepositoryImpl implements FileScannerRepository {
   static const _channel = MethodChannel('maccleaner/recycle');
+  static const _permissionDeniedMessage =
+      'O macOS negou permissão para mover este item. Ele foi preservado; '
+      'revise o acesso do MacCleaner em Ajustes do Sistema > Privacidade e Segurança.';
 
   @override
   Future<CleanupResult> deleteItems(
@@ -25,6 +28,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
     final removed = <ScanItem>[];
     final skipped = <String, String>{};
     final failed = <String, String>{};
+    final permissionDenied = <String>{};
 
     for (final item in items) {
       final assessment = DeletionSafetyGuard.assess(
@@ -73,9 +77,22 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
         }
         removed.add(item);
       } on PlatformException catch (error) {
-        failed[item.path] = error.message ?? 'Falha ao mover para a Lixeira.';
+        final message = error.message?.toLowerCase() ?? '';
+        final isPermissionDenied =
+            error.code == 'PERMISSION_DENIED' ||
+            message.contains('permission') ||
+            message.contains('permissão');
+        failed[item.path] = isPermissionDenied
+            ? _permissionDeniedMessage
+            : error.message ?? 'Falha ao mover para a Lixeira.';
+        if (isPermissionDenied) permissionDenied.add(item.path);
       } on FileSystemException catch (error) {
-        failed[item.path] = error.message;
+        final isPermissionDenied =
+            error.osError?.errorCode == 1 || error.osError?.errorCode == 13;
+        failed[item.path] = isPermissionDenied
+            ? _permissionDeniedMessage
+            : error.message;
+        if (isPermissionDenied) permissionDenied.add(item.path);
       } catch (error) {
         failed[item.path] = error.toString();
       }
@@ -85,6 +102,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
       removedItems: removed,
       skippedItems: skipped,
       failedItems: failed,
+      permissionDeniedPaths: permissionDenied,
     );
   }
 
@@ -474,7 +492,12 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
                           : ScanItemType.file,
                       isSelected: false,
                       reason:
-                          'Possível resíduo: identificador $identifier sem app correspondente.',
+                          p.isWithin(
+                            ScanPaths.expandPath('~/Library/Containers'),
+                            entity.path,
+                          )
+                          ? 'Possível contêiner órfão: $identifier. O macOS pode exigir autorização para movê-lo.'
+                          : 'Possível resíduo: identificador $identifier sem app correspondente.',
                     ),
                   );
                   totalBytes += size;

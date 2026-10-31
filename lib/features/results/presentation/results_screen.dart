@@ -2,9 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../../core/constants/scan_paths.dart';
 import '../../../../core/utils/file_size_formatter.dart';
 import '../../dashboard/presentation/widgets/macos_window_shell.dart';
 
@@ -21,9 +23,11 @@ class ResultsScreen extends ConsumerStatefulWidget {
 }
 
 class _ResultsScreenState extends ConsumerState<ResultsScreen> {
+  static const _channel = MethodChannel('maccleaner/recycle');
   String _searchQuery = '';
   String _sortBy = 'size_desc'; // size_desc, size_asc, name, date_desc
   String _riskFilter = 'all';
+  bool _checkingContainerAccess = false;
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +77,10 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     final protectedCount = allItems
         .where((item) => item.riskLevel == ScanRiskLevel.protected)
         .length;
+    final containerRoot = ScanPaths.expandPath('~/Library/Containers');
+    final containerItems = allItems
+        .where((item) => item.path.startsWith('$containerRoot/'))
+        .toList();
 
     return MacosWindowShell(
       currentRoute: '/results',
@@ -131,6 +139,32 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                   fontSize: 11,
                   color: Colors.orangeAccent,
                 ),
+              ),
+            ],
+            if (containerItems.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 10,
+                children: [
+                  Text(
+                    '${containerItems.length} ${containerItems.length == 1 ? 'contêiner de app encontrado' : 'contêineres de apps encontrados'}. '
+                    'Você pode selecioná-los para limpeza.',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.orangeAccent,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: isDeleting || _checkingContainerAccess
+                        ? null
+                        : () => _requestContainerAccess(
+                            containerItems.first.path,
+                          ),
+                    icon: const Icon(Icons.lock_open_outlined, size: 14),
+                    label: const Text('Solicitar acesso'),
+                  ),
+                ],
               ),
             ],
             const SizedBox(height: 20),
@@ -705,6 +739,27 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     return '"$escaped"';
   }
 
+  Future<void> _requestContainerAccess(String path) async {
+    setState(() => _checkingContainerAccess = true);
+    String message;
+    try {
+      await _channel.invokeMethod<bool>('requestContainerAccess', path);
+      message =
+          'Acesso ao contêiner confirmado. Cada item ainda será verificado na limpeza.';
+    } on PlatformException catch (error) {
+      message = error.code == 'PERMISSION_DENIED'
+          ? 'O macOS negou acesso. Revise as permissões do MacCleaner em Privacidade e Segurança.'
+          : 'Não foi possível acessar o contêiner: ${error.message ?? error.code}';
+    } catch (error) {
+      message = 'Não foi possível verificar o acesso: $error';
+    }
+    if (!mounted) return;
+    setState(() => _checkingContainerAccess = false);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _revealInFinder(String path) async {
     await Process.run('open', ['-R', path]);
   }
@@ -728,6 +783,10 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     final trashCount = selectedItems
         .where((item) => item.path.contains('/.Trash/'))
         .length;
+    final containerRoot = ScanPaths.expandPath('~/Library/Containers');
+    final containerCount = selectedItems
+        .where((item) => item.path.startsWith('$containerRoot/'))
+        .length;
 
     showDialog(
       context: context,
@@ -735,6 +794,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
             return AlertDialog(
+              scrollable: true,
               backgroundColor: const Color(0xFF1E1E22),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -769,6 +829,16 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                       color: Colors.orangeAccent,
                       icon: Icons.visibility_outlined,
                     ),
+                  if (containerCount > 0) ...[
+                    const SizedBox(height: 8),
+                    _DialogNotice(
+                      text:
+                          '$containerCount ${containerCount == 1 ? 'contêiner de app selecionado' : 'contêineres de apps selecionados'}. '
+                          'O macOS pode solicitar autorização para mover esse conteúdo.',
+                      color: Colors.orangeAccent,
+                      icon: Icons.lock_open_outlined,
+                    ),
+                  ],
                   if (trashCount > 0 && !isPermanent) ...[
                     const SizedBox(height: 8),
                     _DialogNotice(

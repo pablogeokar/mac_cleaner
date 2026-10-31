@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/utils/file_size_formatter.dart';
@@ -9,6 +10,24 @@ import '../../scanner/presentation/providers/scan_provider.dart';
 
 class ReportScreen extends ConsumerWidget {
   const ReportScreen({super.key});
+
+  static const _channel = MethodChannel('maccleaner/recycle');
+
+  Future<void> _openPrivacySettings(BuildContext context) async {
+    try {
+      final opened = await _channel.invokeMethod<bool>('openPrivacySettings');
+      if (opened == true || !context.mounted) return;
+    } catch (_) {
+      if (!context.mounted) return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Abra Ajustes do Sistema > Privacidade e Segurança > Acesso Total ao Disco.',
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -32,14 +51,20 @@ class ReportScreen extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.secondary.withValues(alpha: 0.08),
+                color:
+                    (hasIssues
+                            ? Colors.orangeAccent
+                            : Theme.of(context).colorScheme.secondary)
+                        .withValues(alpha: 0.08),
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.check_circle_outline,
-                color: Theme.of(context).colorScheme.secondary,
+                hasIssues
+                    ? Icons.warning_amber_rounded
+                    : Icons.check_circle_outline,
+                color: hasIssues
+                    ? Colors.orangeAccent
+                    : Theme.of(context).colorScheme.secondary,
                 size: 72,
               ),
             ),
@@ -58,7 +83,9 @@ class ReportScreen extends ConsumerWidget {
             const SizedBox(height: 8),
             Text(
               hasIssues
-                  ? 'Os itens seguros foram processados; arquivos protegidos ou com falha foram preservados.'
+                  ? '$cleanedCount ${cleanedCount == 1 ? 'item processado' : 'itens processados'}; '
+                        '${scanState.totalSkippedFiles} preservados e '
+                        '${scanState.totalFailedFiles} com falha.'
                   : 'Os itens selecionados foram processados com segurança.',
               style: TextStyle(
                 fontSize: 13,
@@ -75,13 +102,13 @@ class ReportScreen extends ConsumerWidget {
               alignment: WrapAlignment.center,
               children: [
                 _StatSummaryCard(
-                  title: 'Espaço Liberado',
+                  title: 'Volume Processado',
                   value: cleanedBytesFormatted,
-                  icon: Icons.speed,
+                  icon: Icons.data_usage,
                   iconColor: Theme.of(context).colorScheme.secondary,
                 ),
                 _StatSummaryCard(
-                  title: 'Arquivos Removidos',
+                  title: 'Itens Processados',
                   value: '$cleanedCount itens',
                   icon: Icons.delete_sweep_outlined,
                   iconColor: Theme.of(context).primaryColor,
@@ -107,7 +134,7 @@ class ReportScreen extends ConsumerWidget {
             if (scanState.cleanupIssues.isNotEmpty) ...[
               const SizedBox(height: 16),
               Container(
-                constraints: const BoxConstraints(maxHeight: 110),
+                constraints: const BoxConstraints(maxHeight: 160),
                 margin: const EdgeInsets.symmetric(horizontal: 40),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -121,11 +148,9 @@ class ReportScreen extends ConsumerWidget {
                   shrinkWrap: true,
                   children: scanState.cleanupIssues.entries.map((entry) {
                     return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 3),
-                      child: Text(
-                        '${entry.key} — ${entry.value}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: SelectableText(
+                        '${entry.key}\n${entry.value}',
                         style: const TextStyle(
                           color: Colors.white54,
                           fontSize: 10,
@@ -133,6 +158,42 @@ class ReportScreen extends ConsumerWidget {
                       ),
                     );
                   }).toList(),
+                ),
+              ),
+            ],
+            if (scanState.permissionDeniedPaths.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 40),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.orangeAccent.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: Colors.orangeAccent.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'O macOS negou acesso a ${scanState.permissionDeniedPaths.length} '
+                      '${scanState.permissionDeniedPaths.length == 1 ? 'item' : 'itens'}. '
+                      'Se você quiser permitir a limpeza, autorize o MacCleaner em '
+                      'Privacidade e Segurança > Acesso Total ao Disco. Depois, '
+                      'reabra o app e faça uma nova varredura.',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white70,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () => _openPrivacySettings(context),
+                      icon: const Icon(Icons.settings_outlined, size: 16),
+                      label: const Text('Abrir Privacidade do macOS'),
+                    ),
+                  ],
                 ),
               ),
             ],

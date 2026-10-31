@@ -38,6 +38,16 @@ void main() {
       }
     });
 
+    test('allows reviewed app containers within the user library', () {
+      expect(
+        DeletionSafetyGuard.isSafeToDelete(
+          '$home/Library/Containers/com.example.app/Data/file.db',
+          homeDirectory: home,
+        ),
+        isTrue,
+      );
+    });
+
     test('normalizes traversal before applying policy', () {
       expect(
         DeletionSafetyGuard.isSafeToDelete(

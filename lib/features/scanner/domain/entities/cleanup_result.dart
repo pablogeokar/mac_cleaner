@@ -4,11 +4,13 @@ class CleanupResult {
   final List<ScanItem> removedItems;
   final Map<String, String> skippedItems;
   final Map<String, String> failedItems;
+  final Set<String> permissionDeniedPaths;
 
   const CleanupResult({
     this.removedItems = const [],
     this.skippedItems = const {},
     this.failedItems = const {},
+    this.permissionDeniedPaths = const {},
   });
 
   int get removedBytes =>
