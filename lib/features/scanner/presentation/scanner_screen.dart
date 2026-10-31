@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../dashboard/presentation/widgets/macos_window_shell.dart';
+import '../domain/entities/scan_category.dart';
 import '../presentation/providers/scan_provider.dart';
 
 class ScannerScreen extends ConsumerStatefulWidget {
@@ -34,6 +35,33 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   @override
   Widget build(BuildContext context) {
     final scanState = ref.watch(scannerNotifierProvider);
+    final categoriesByType = {
+      for (final category in scanState.categories) category.type: category,
+    };
+    final scanCategories = scanState.scanTargets
+        .map((type) => categoriesByType[type]!)
+        .toList();
+    int categoryOrder(ScanCategoryType type) {
+      final category = categoriesByType[type]!;
+      if (category.isScanning) return 0;
+      if (scanState.scanErrors.containsKey(type)) return 2;
+      if (scanState.categoryProgresses[type] == 1.0) return 3;
+      return 1;
+    }
+
+    scanCategories.sort((a, b) {
+      final order = categoryOrder(a.type).compareTo(categoryOrder(b.type));
+      return order != 0
+          ? order
+          : scanState.scanTargets
+                .indexOf(a.type)
+                .compareTo(scanState.scanTargets.indexOf(b.type));
+    });
+    final completedCount = scanState.scanTargets
+        .where((type) => scanState.categoryProgresses[type] == 1.0)
+        .length;
+    final failedCount = scanState.scanErrors.length;
+    final processedCount = completedCount + failedCount;
 
     // Listen to completion status and auto-redirect to results screen
     ref.listen(scannerNotifierProvider, (previous, next) {
@@ -92,29 +120,79 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                     ),
                     SizedBox(height: 2),
                     Text(
-                      'Aguarde enquanto os caches e logs são processados.',
+                      'Acompanhe as categorias selecionadas para a varredura.',
                       style: TextStyle(fontSize: 12, color: Colors.white38),
                     ),
                   ],
                 ),
               ],
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
+
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF242428).withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Progresso geral',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        '$processedCount de ${scanCategories.length} categorias finalizadas',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white54,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: scanState.overallProgress,
+                      minHeight: 5,
+                      backgroundColor: Colors.white.withValues(alpha: 0.06),
+                      color: Theme.of(context).primaryColor,
+                    ),
+                  ),
+                  if (failedCount > 0) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '$failedCount categoria(s) com falha. Os resultados podem estar incompletos.',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.orangeAccent,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
 
             // Live progress bars for each scanning category
             Expanded(
               child: ListView.builder(
-                itemCount: scanState.categories.length,
+                itemCount: scanCategories.length,
                 itemBuilder: (context, index) {
-                  final cat = scanState.categories[index];
-                  final progress =
-                      scanState.categoryProgresses[cat.type] ?? 0.0;
+                  final cat = scanCategories[index];
                   final isCurrentlyScanning = cat.isScanning;
-
-                  // Render progress only if it's targeted or is active
-                  if (progress == 0.0 && !isCurrentlyScanning) {
-                    return const SizedBox.shrink();
-                  }
+                  final hasError = scanState.scanErrors.containsKey(cat.type);
+                  final isComplete =
+                      scanState.categoryProgresses[cat.type] == 1.0;
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 16),
@@ -152,15 +230,23 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                                 ],
                               ),
                               Text(
-                                progress >= 1.0
+                                hasError
+                                    ? 'Falhou'
+                                    : isComplete
                                     ? 'Concluído'
-                                    : '${(progress * 100).toStringAsFixed(0)}%',
+                                    : isCurrentlyScanning
+                                    ? 'Em andamento'
+                                    : 'Na fila',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
-                                  color: progress >= 1.0
+                                  color: hasError
+                                      ? Colors.orangeAccent
+                                      : isComplete
                                       ? Theme.of(context).colorScheme.secondary
-                                      : Theme.of(context).primaryColor,
+                                      : isCurrentlyScanning
+                                      ? Theme.of(context).primaryColor
+                                      : Colors.white38,
                                 ),
                               ),
                             ],
@@ -169,13 +255,19 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           ClipRRect(
                             borderRadius: BorderRadius.circular(2),
                             child: LinearProgressIndicator(
-                              value: progress,
+                              value: isCurrentlyScanning
+                                  ? null
+                                  : isComplete
+                                  ? 1.0
+                                  : 0.0,
                               minHeight: 4,
                               backgroundColor: Colors.white.withValues(
                                 alpha: 0.04,
                               ),
                               valueColor: AlwaysStoppedAnimation<Color>(
-                                progress >= 1.0
+                                hasError
+                                    ? Colors.orangeAccent
+                                    : isComplete
                                     ? Theme.of(context).colorScheme.secondary
                                     : Theme.of(context).primaryColor,
                               ),

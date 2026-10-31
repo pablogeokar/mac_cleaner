@@ -34,6 +34,8 @@ class ScanState {
   final Map<String, String> cleanupIssues;
   final double overallProgress;
   final Map<ScanCategoryType, double> categoryProgresses;
+  final List<ScanCategoryType> scanTargets;
+  final Map<ScanCategoryType, String> scanErrors;
 
   const ScanState({
     required this.status,
@@ -50,6 +52,8 @@ class ScanState {
     required this.cleanupIssues,
     required this.overallProgress,
     required this.categoryProgresses,
+    required this.scanTargets,
+    required this.scanErrors,
   });
 
   ScanState copyWith({
@@ -67,6 +71,8 @@ class ScanState {
     Map<String, String>? cleanupIssues,
     double? overallProgress,
     Map<ScanCategoryType, double>? categoryProgresses,
+    List<ScanCategoryType>? scanTargets,
+    Map<ScanCategoryType, String>? scanErrors,
   }) {
     return ScanState(
       status: status ?? this.status,
@@ -83,6 +89,8 @@ class ScanState {
       cleanupIssues: cleanupIssues ?? this.cleanupIssues,
       overallProgress: overallProgress ?? this.overallProgress,
       categoryProgresses: categoryProgresses ?? this.categoryProgresses,
+      scanTargets: scanTargets ?? this.scanTargets,
+      scanErrors: scanErrors ?? this.scanErrors,
     );
   }
 }
@@ -105,7 +113,6 @@ DeleteItemsUseCase deleteItemsUseCase(Ref ref) {
 @riverpod
 class ScannerNotifier extends _$ScannerNotifier {
   final List<StreamSubscription> _subscriptions = [];
-  Set<ScanCategoryType> _activeScanTypes = {};
   bool _isCancelled = false;
 
   @override
@@ -130,6 +137,8 @@ class ScannerNotifier extends _$ScannerNotifier {
       cleanupIssues: const {},
       overallProgress: 0.0,
       categoryProgresses: {for (var type in ScanCategoryType.values) type: 0.0},
+      scanTargets: const [],
+      scanErrors: const {},
     );
   }
 
@@ -324,8 +333,6 @@ class ScannerNotifier extends _$ScannerNotifier {
       );
       return false;
     }
-    _activeScanTypes = targets.toSet();
-
     final initialCategories = _initializeCategories().map((category) {
       final isSelected = selectedTypes.contains(category.type);
       return category.copyWith(isSelected: isSelected);
@@ -347,21 +354,12 @@ class ScannerNotifier extends _$ScannerNotifier {
       cleanupIssues: const {},
       overallProgress: 0.0,
       categoryProgresses: {for (var type in ScanCategoryType.values) type: 0.0},
-    );
-
-    // Setup active categories states
-    state = state.copyWith(
-      categories: state.categories.map((cat) {
-        if (targets.contains(cat.type)) {
-          return cat.copyWith(isScanning: true);
-        }
-        return cat;
-      }).toList(),
+      scanTargets: targets,
+      scanErrors: const {},
     );
 
     // Limit concurrency to 3
     final queue = List<ScanCategoryType>.from(targets);
-    final activeCompleters = <ScanCategoryType, Completer<void>>{};
     final maxConcurrency = 3;
 
     Future<void> processNext() async {
@@ -369,7 +367,14 @@ class ScannerNotifier extends _$ScannerNotifier {
       final currentCatType = queue.removeAt(0);
 
       final completer = Completer<void>();
-      activeCompleters[currentCatType] = completer;
+
+      state = state.copyWith(
+        categories: state.categories.map((cat) {
+          return cat.type == currentCatType
+              ? cat.copyWith(isScanning: true)
+              : cat;
+        }).toList(),
+      );
 
       final settings = ref.read(settingsProvider);
       final stream = ref
@@ -388,19 +393,25 @@ class ScannerNotifier extends _$ScannerNotifier {
           _updateProgress(progress);
         },
         onDone: () {
-          _finishCategoryScan(currentCatType);
-          completer.complete();
+          if (!completer.isCompleted) {
+            if (!_isCancelled) _finishCategoryScan(currentCatType);
+            completer.complete();
+          }
         },
         onError: (e) {
-          _finishCategoryScan(currentCatType);
-          completer.complete();
+          if (!completer.isCompleted) {
+            if (!_isCancelled) {
+              _finishCategoryScan(currentCatType, error: e.toString());
+            }
+            completer.complete();
+          }
         },
+        cancelOnError: true,
       );
 
       _subscriptions.add(subscription);
 
       await completer.future;
-      activeCompleters.remove(currentCatType);
 
       if (state.status == ScannerStatus.scanning && !_isCancelled) {
         await processNext();
@@ -419,7 +430,9 @@ class ScannerNotifier extends _$ScannerNotifier {
       state = state.copyWith(
         status: ScannerStatus.completed,
         overallProgress: 1.0,
-        currentProgressLog: 'Varredura finalizada.',
+        currentProgressLog: state.scanErrors.isEmpty
+            ? 'Varredura finalizada.'
+            : 'Varredura finalizada com falhas em ${state.scanErrors.length} categoria(s).',
       );
       _recalculateSelectedSizes();
       return true;
@@ -433,16 +446,7 @@ class ScannerNotifier extends _$ScannerNotifier {
 
     final updatedProgresses = Map<ScanCategoryType, double>.from(
       state.categoryProgresses,
-    )..[progress.category] = progress.progress;
-
-    // Recalculate overall progress
-    final progressSum = _activeScanTypes.fold<double>(
-      0,
-      (total, type) => total + (updatedProgresses[type] ?? 0),
-    );
-    final overall = _activeScanTypes.isNotEmpty
-        ? progressSum / _activeScanTypes.length
-        : 0.0;
+    )..[progress.category] = min(progress.progress, 0.99);
 
     // Update categories by injecting current scanned items
     final updatedCategories = state.categories.map((cat) {
@@ -451,7 +455,7 @@ class ScannerNotifier extends _$ScannerNotifier {
           items: progress.items,
           fileCount: progress.itemsFound,
           totalBytes: progress.bytesFound,
-          isScanning: !progress.isComplete,
+          isScanning: true,
           isSelected: progress.isComplete
               ? progress.items.any((item) => item.isSelected)
               : cat.isSelected,
@@ -473,19 +477,36 @@ class ScannerNotifier extends _$ScannerNotifier {
       categories: updatedCategories,
       totalScannedFiles: totalFiles,
       totalScannedBytes: totalBytes,
-      overallProgress: min(
-        overall,
-        0.99,
-      ), // Keep under 100% until fully complete
       currentProgressLog: progress.currentPath,
     );
   }
 
-  void _finishCategoryScan(ScanCategoryType type) {
+  void _finishCategoryScan(ScanCategoryType type, {String? error}) {
+    final updatedProgresses = Map<ScanCategoryType, double>.from(
+      state.categoryProgresses,
+    );
+    final updatedErrors = Map<ScanCategoryType, String>.from(state.scanErrors);
+    if (error == null) {
+      updatedProgresses[type] = 1.0;
+    } else {
+      updatedErrors[type] = error;
+    }
+    final processedCount = state.scanTargets
+        .where(
+          (target) =>
+              updatedProgresses[target] == 1.0 ||
+              updatedErrors.containsKey(target),
+        )
+        .length;
     state = state.copyWith(
-      categoryProgresses: Map<ScanCategoryType, double>.from(
-        state.categoryProgresses,
-      )..[type] = 1.0,
+      categoryProgresses: updatedProgresses,
+      scanErrors: updatedErrors,
+      overallProgress: state.scanTargets.isEmpty
+          ? 0.0
+          : min(processedCount / state.scanTargets.length, 0.99),
+      currentProgressLog: error == null
+          ? state.currentProgressLog
+          : 'Falha ao varrer ${state.categories.firstWhere((cat) => cat.type == type).displayName}: $error',
       categories: state.categories.map((cat) {
         if (cat.type == type) {
           return cat.copyWith(isScanning: false);
@@ -498,7 +519,6 @@ class ScannerNotifier extends _$ScannerNotifier {
   /// Cancels any active scan streams.
   void cancelScan() {
     _isCancelled = true;
-    _activeScanTypes = {};
     for (final sub in _subscriptions) {
       sub.cancel();
     }
@@ -611,6 +631,8 @@ class ScannerNotifier extends _$ScannerNotifier {
       status: ScannerStatus.idle,
       categories: _initializeCategories(),
       overallProgress: 0.0,
+      scanTargets: const [],
+      scanErrors: const {},
       totalScannedBytes: 0,
       totalScannedFiles: 0,
       totalSelectedBytes: 0,

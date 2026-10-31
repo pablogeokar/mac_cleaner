@@ -123,6 +123,16 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                 ),
               ],
             ),
+            if (scanState.scanErrors.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Varredura parcial: ${scanState.scanErrors.length} categoria(s) falharam. Os resultados podem estar incompletos.',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.orangeAccent,
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
 
             Wrap(
