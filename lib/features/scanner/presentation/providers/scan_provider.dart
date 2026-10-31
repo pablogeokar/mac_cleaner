@@ -219,7 +219,7 @@ class ScannerNotifier extends _$ScannerNotifier {
                 (item) => item.copyWith(
                   isSelected:
                       newSelect &&
-                      item.isSafeToDelete &&
+                      item.canBeSelected &&
                       item.riskLevel == ScanRiskLevel.safe,
                 ),
               )
@@ -233,11 +233,12 @@ class ScannerNotifier extends _$ScannerNotifier {
   }
 
   void toggleItemSelection(ScanCategoryType categoryType, String itemPath) {
+    if (state.status == ScannerStatus.deleting) return;
     state = state.copyWith(
       categories: state.categories.map((cat) {
         if (cat.type == categoryType) {
           final updatedItems = cat.items.map((item) {
-            if (item.path == itemPath && item.isSafeToDelete) {
+            if (item.path == itemPath && item.canBeSelected) {
               return item.copyWith(isSelected: !item.isSelected);
             }
             return item;
@@ -258,7 +259,7 @@ class ScannerNotifier extends _$ScannerNotifier {
 
     for (final cat in state.categories) {
       for (final item in cat.items) {
-        if (item.isSelected && item.isSafeToDelete) {
+        if (item.isSelected && item.canBeSelected) {
           selBytes += item.sizeBytes;
           selFiles++;
         }
@@ -272,20 +273,20 @@ class ScannerNotifier extends _$ScannerNotifier {
   }
 
   void selectAllInCategory(ScanCategoryType type, bool select) {
+    if (state.status == ScannerStatus.deleting) return;
     state = state.copyWith(
       categories: state.categories.map((cat) {
         if (cat.type == type) {
           final updatedItems = cat.items
               .map(
-                (item) => item.copyWith(
-                  isSelected:
-                      select &&
-                      item.isSafeToDelete &&
-                      item.riskLevel == ScanRiskLevel.safe,
-                ),
+                (item) =>
+                    item.copyWith(isSelected: select && item.canBeSelected),
               )
               .toList();
-          return cat.copyWith(isSelected: select, items: updatedItems);
+          return cat.copyWith(
+            isSelected: updatedItems.any((item) => item.isSelected),
+            items: updatedItems,
+          );
         }
         return cat;
       }).toList(),
@@ -538,9 +539,9 @@ class ScannerNotifier extends _$ScannerNotifier {
 
     final selectedItems = <ScanItem>[];
     for (final cat in state.categories) {
-      if (cat.isSelected) {
-        selectedItems.addAll(cat.items.where((i) => i.isSelected));
-      }
+      selectedItems.addAll(
+        cat.items.where((item) => item.isSelected && item.canBeSelected),
+      );
     }
 
     if (selectedItems.isEmpty) {
@@ -634,6 +635,7 @@ class ScannerNotifier extends _$ScannerNotifier {
             fileCount: items.length,
             totalBytes: size,
             isScanning: false,
+            isSelected: items.any((item) => item.isSelected),
           );
         }
         return cat;

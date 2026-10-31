@@ -303,6 +303,19 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                 itemBuilder: (context, index) {
                   final cat = scanState.categories[index];
                   final filteredItems = _getFilteredAndSortedItems(cat.items);
+                  final selectableItems = cat.items.where(
+                    (item) => item.canBeSelected,
+                  );
+                  final selectableCount = selectableItems.length;
+                  final selectedCount = selectableItems
+                      .where((item) => item.isSelected)
+                      .length;
+                  final protectedCount = cat.items.length - selectableCount;
+                  final bool? categorySelection = selectedCount == 0
+                      ? false
+                      : selectedCount == selectableCount
+                      ? true
+                      : null;
 
                   if (cat.items.isEmpty) {
                     return const SizedBox.shrink();
@@ -364,24 +377,27 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                       subtitle: Row(
                         children: [
                           Checkbox(
-                            value: cat.isSelected,
+                            value: categorySelection,
+                            tristate: true,
                             activeColor: Theme.of(context).primaryColor,
                             checkColor: Colors.black,
-                            onChanged: (val) {
-                              ref
-                                  .read(scannerNotifierProvider.notifier)
-                                  .selectAllInCategory(cat.type, val ?? false);
-                            },
+                            onChanged: selectableCount == 0 || isDeleting
+                                ? null
+                                : (_) => ref
+                                      .read(scannerNotifierProvider.notifier)
+                                      .selectAllInCategory(
+                                        cat.type,
+                                        selectedCount < selectableCount,
+                                      ),
                           ),
                           Text(
-                            cat.isSelected
-                                ? 'Itens recomendados selecionados'
-                                : 'Selecionar itens recomendados',
+                            '$selectedCount de $selectableCount selecionáveis'
+                            '${protectedCount > 0 ? ' • $protectedCount protegidos' : ''}',
                             style: TextStyle(
                               fontSize: 10,
-                              color: cat.isSelected
+                              color: selectableCount > 0
                                   ? Colors.white54
-                                  : Colors.white24,
+                                  : Colors.white38,
                             ),
                           ),
                         ],
@@ -739,7 +755,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                   if (reviewCount > 0)
                     _DialogNotice(
                       text:
-                          '$reviewCount item(ns) exigem revisão e foram selecionados manualmente.',
+                          '$reviewCount item(ns) exigem revisão. Confira a lista antes de continuar.',
                       color: Colors.orangeAccent,
                       icon: Icons.visibility_outlined,
                     ),

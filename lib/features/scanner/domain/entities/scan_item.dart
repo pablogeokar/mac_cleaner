@@ -14,6 +14,9 @@ class ScanItem {
   final String? reason;
   final bool isSelected;
 
+  bool get canBeSelected =>
+      isSafeToDelete && riskLevel != ScanRiskLevel.protected;
+
   const ScanItem({
     required this.path,
     required this.fileName,

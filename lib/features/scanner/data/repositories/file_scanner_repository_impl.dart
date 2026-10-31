@@ -31,7 +31,7 @@ class FileScannerRepositoryImpl implements FileScannerRepository {
         item.path,
         excludedPaths: excludedPaths,
       );
-      if (!item.isSafeToDelete || !assessment.isAllowed) {
+      if (!item.canBeSelected || !assessment.isAllowed) {
         skipped[item.path] = assessment.isAllowed
             ? 'Item classificado como protegido.'
             : assessment.reason;

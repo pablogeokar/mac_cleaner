@@ -19,6 +19,8 @@ class FileItemRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isDeleting =
+        ref.watch(scannerNotifierProvider).status == ScannerStatus.deleting;
     final sizeStr = FileSizeFormatter.format(item.sizeBytes);
     final hasReason = item.reason != null && item.reason!.isNotEmpty;
     final riskColor = switch (item.riskLevel) {
@@ -46,7 +48,7 @@ class FileItemRow extends ConsumerWidget {
             value: item.isSelected,
             activeColor: Theme.of(context).primaryColor,
             checkColor: Colors.black,
-            onChanged: item.isSafeToDelete
+            onChanged: item.canBeSelected && !isDeleting
                 ? (_) {
                     ref
                         .read(scannerNotifierProvider.notifier)
